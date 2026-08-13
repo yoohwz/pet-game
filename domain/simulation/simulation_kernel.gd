@@ -39,7 +39,8 @@ static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int
 		next["active_pet"] = pet
 	var sim_version := int(simulation.get("simulation_version", 2))
 	var balance_version := int(balance.get("balance_version", 1))
-	var care_version := int(simulation.get("care_balance_version", care.get("care_balance_version", 1)))
+	# Identity reflects the care configuration that actually produced this result.
+	var care_version := int(care.get("care_balance_version", simulation.get("care_balance_version", 1)))
 	var event := DomainEventScript.make("sim:v%d:b%d:c%d:%s:%d:%d" % [sim_version, balance_version, care_version, subject, from_timestamp, to_timestamp], "simulation_advanced", to_timestamp if elapsed > 0 else from_timestamp, subject, {"elapsed_seconds": elapsed})
 	generated_events.append(event)
 	return {"new_state": next, "generated_events": generated_events, "elapsed_seconds": elapsed}
