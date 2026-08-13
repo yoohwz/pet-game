@@ -36,7 +36,7 @@ Schema v2 profile persistence keeps pet vitals and timestamp atomically together
 godot --headless --path . -s res://tests/test_runner.gd
 ```
 
-Result: **44 passed, 0 failed**.
+Result: **61 passed, 0 failed**.
 
 Key evidence: v1 migration, 1h/8h/24h decay, large-gap clamp, unchanged mood/health/dead pet, chunking, deterministic pet event IDs, active session monotonic advancement, negative wall clock, v2 persistence/backup recovery, and debug production-path reuse all PASS.
 
@@ -46,6 +46,31 @@ Domain → filesystem: NO
 Domain → wall clock: NO  
 Domain → network: NO  
 Domain → UI: NO
+
+## Acceptance Review Corrective Pass
+
+Previous verdict: **REWORK REQUIRED**
+Pre-correction review HEAD: `2c194c91e6a472f94a1dabab4a33e75b86b754ab`
+Corrective implementation commit: `d61fb486730480c58e9d95fab6e2b7369aedf948`
+Evidence/report commit: this documentation delivery commit (final branch HEAD is authoritative)
+
+### Blocker 1 — Fractional active time
+
+Resolution: active monotonic advancement now advances its simulated and monotonic anchors by the same whole-second amount instead of re-anchoring at each sampled monotonic value. The fractional remainder is retained.
+
+Regression tests: irregular tick sequences prove the expected whole-second total, cadence independence, and equivalence to direct simulation.
+
+### Blocker 2 — Persistence cadence
+
+Resolution: `advance_in_memory_to()` mutates only the in-memory profile. `persist_profile()` is an explicit boundary: approximately 30-second autosave, startup/resume, pause, debug movement, and debug fixture actions.
+
+Regression tests: active ticks below the cadence create no writes; one autosave occurs at 30 seconds; pause saves latest state; startup and positive resume reconcile and persist.
+
+### Blocker 3 — Debug continuity
+
+Resolution: debug advancement persists then re-anchors using the current monotonic time. The following active tick begins from the debug target rather than a stale session anchor.
+
+Regression tests: debug introduces no false clock anomaly, persists immediately, and eight debug hours plus one active hour equals nine hours of direct progression.
 
 ## Scope Audit
 

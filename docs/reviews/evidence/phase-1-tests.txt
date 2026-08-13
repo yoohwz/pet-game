@@ -3,4 +3,8 @@ godot --headless --path . -s res://tests/test_runner.gd
 
 Result:
 Godot Engine v4.7.1.stable.official.a13da4feb
-RESULT: 44 passed, 0 failed
+RESULT: 61 passed, 0 failed
+
+Corrective coverage: fractional monotonic retention, irregular-tick equivalence,
+foreground no-save cadence, autosave/pause boundaries, startup/resume persistence,
+and debug re-anchoring/continuity.
