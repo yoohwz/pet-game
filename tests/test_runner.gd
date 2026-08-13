@@ -257,6 +257,39 @@ func _run() -> void:
 	eq(sleep_result.active_pet.vitals.energy, 100.0, "sleep restores energy")
 	eq(sleep_result.active_pet.vitals.health, 100.0, "sleep has no health consequence")
 	ok(care_session.care_action("wake", 10.0).ok and care_session.profile.active_pet.activity.state == "AWAKE", "wake persists")
+	# Phase 3 acceptance gaps: event semantics, failures, offline sleep and timeline ordering.
+	var care_v2: Dictionary = care_session.care.duplicate(true); care_v2.care_balance_version = 2
+	var event_one: Dictionary = SimulationKernelScript.simulate(fixture(), 1000, 4600, BALANCE, care_session.lifecycle, care_session.care).generated_events[-1]
+	var event_two: Dictionary = SimulationKernelScript.simulate(fixture(), 1000, 4600, BALANCE, care_session.lifecycle, care_session.care).generated_events[-1]
+	var care_v2_profile := fixture(); care_v2_profile.simulation.care_balance_version = 2
+	var event_changed: Dictionary = SimulationKernelScript.simulate(care_v2_profile, 1000, 4600, BALANCE, care_session.lifecycle, care_v2).generated_events[-1]
+	eq(event_one.event_id, event_two.event_id, "same care version simulation event deterministic")
+	ok(event_one.event_id != event_changed.event_id, "care balance version changes event identity")
+	var fail_care = PetGameSessionScript.new(); fail_care.balance = BALANCE; fail_care.lifecycle = care_session.lifecycle; fail_care.care = care_session.care; fail_care.profile = fixture(); fail_care.profile.active_pet.vitals.hunger = 40.0; fail_care.reanchor(10.0)
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	eq(fail_care.care_action("feed", 10.0).reason, "PERSIST_FAILED", "care save failure reported")
+	eq(fail_care.profile.active_pet.vitals.hunger, 40.0, "failed feed does not commit care effect")
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	eq(fail_care.care_action("sleep", 10.0).reason, "PERSIST_FAILED", "sleep save failure reported")
+	eq(fail_care.profile.active_pet.activity.state, "AWAKE", "failed sleep stays awake")
+	fail_care.profile.active_pet.vitals.energy = 5.0; var before_mood: float = fail_care.profile.active_pet.vitals.mood; var before_energy: float = fail_care.profile.active_pet.vitals.energy; var before_events: int = fail_care.profile.recent_events.size()
+	eq(fail_care.care_action("play", 10.0).reason, "LOW_ENERGY", "low energy play rejected")
+	eq(fail_care.profile.active_pet.vitals.energy, before_energy, "low energy play preserves energy")
+	eq(fail_care.profile.active_pet.vitals.mood, before_mood, "low energy play preserves mood")
+	eq(fail_care.profile.recent_events.size(), before_events, "low energy play emits no event")
+	# Offline sleeping startup reconciliation.
+	_reset(); var offline_sleep := fixture(); offline_sleep.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; offline_sleep.active_pet.vitals.energy = 25.0; ok(LocalSaveRepositoryScript.save_profile(offline_sleep), "persist sleeping fixture")
+	var sleep_startup = PetGameSessionScript.new(); sleep_startup.balance = BALANCE; sleep_startup.lifecycle = care_session.lifecycle; sleep_startup.care = care_session.care; sleep_startup.initialize_session(1000 + 14400, 20.0)
+	approx(sleep_startup.profile.active_pet.vitals.energy, 75.0, "offline sleep recovers energy")
+	eq(sleep_startup.profile.active_pet.activity.state, "SLEEPING", "offline sleep remains sleeping")
+	approx(sleep_startup.profile.active_pet.vitals.hydration, 83.3333333, "offline sleep passive hydration decay")
+	# Interaction timeline sync precedes care application and event uses simulated timestamp.
+	var timeline = PetGameSessionScript.new(); timeline.balance = BALANCE; timeline.lifecycle = care_session.lifecycle; timeline.care = care_session.care; timeline.profile = fixture(); timeline.profile.active_pet.vitals.hunger = 50.0; timeline.reanchor(10.0)
+	ok(timeline.care_action("feed", 3610.0).ok, "timeline feed succeeds")
+	approx(timeline.profile.active_pet.vitals.hunger, 82.9166667, "timeline decays before feed")
+	eq(timeline.profile.recent_events[-1].occurred_at, 4600, "care event timestamp uses simulated time")
+	eq(timeline.profile.recent_events[-1].subject_id, "pet:test", "care event subject is pet id")
+	for value in [fail_care, sleep_startup, timeline]: value.free()
 	care_session.free()
 
 func _write(path: String, content: String) -> void:

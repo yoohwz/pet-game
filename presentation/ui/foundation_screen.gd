@@ -9,6 +9,7 @@ var lifecycle_remaining: Label
 var rendered_lifecycle_signature := ""
 var lifecycle_rebuild_count := 0
 var session_override: PetGameSession
+var reaction_label: Label
 
 func _session():
 	return session_override if session_override != null else get_node_or_null("/root/GameSession")
@@ -24,6 +25,9 @@ func _ready() -> void:
 	panel.add_child(title)
 	lifecycle_panel = VBoxContainer.new()
 	panel.add_child(lifecycle_panel)
+	reaction_label = Label.new()
+	reaction_label.text = ""
+	panel.add_child(reaction_label)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(buttons)
@@ -133,5 +137,9 @@ func _hatch() -> void:
 	refresh()
 
 func _care(action: String) -> void:
-	_session().care_action(action, _session().clock.monotonic_seconds())
+	var result: Dictionary = _session().care_action(action, _session().clock.monotonic_seconds())
+	if result.ok:
+		reaction_label.text = {"feed":"Pet ate happily.", "drink":"Pet drank.", "play":"Pet had fun.", "wash":"Pet is clean.", "touch":"Pet enjoyed the touch.", "sleep":"Pet fell asleep.", "wake":"Pet woke up."}.get(action, "Pet responded.")
+	else:
+		reaction_label.text = {"LOW_ENERGY":"Pet is too tired to play.", "PET_SLEEPING":"Pet is sleeping.", "NOT_SLEEPING":"Pet is already awake.", "NO_PET":"No pet is available.", "PERSIST_FAILED":"Action could not be saved.", "UNKNOWN_ACTION":"That action is unavailable."}.get(String(result.reason), "Action unavailable.")
 	refresh()
