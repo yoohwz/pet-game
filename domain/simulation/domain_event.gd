@@ -1,12 +1,10 @@
 class_name DomainEvent
 extends RefCounted
 
-static var _sequence := 0
-
-static func make(event_type: String, occurred_at: int, subject_id: String, payload: Dictionary = {}, event_id: String = "") -> Dictionary:
-	if event_id.is_empty():
-		_sequence += 1
-		event_id = "evt:%d:%s:%d" % [_sequence, event_type, occurred_at]
+static func make(event_id: String, event_type: String, occurred_at: int, subject_id: String, payload: Dictionary = {}) -> Dictionary:
+	# Durable identity is supplied explicitly. Domain never creates it from process-local state.
+	assert(not event_id.is_empty(), "Domain events require an explicit event_id")
+	if event_id.is_empty(): return {}
 	return {"schema_version": 1, "event_id": event_id, "event_type": event_type, "occurred_at": occurred_at, "subject_id": subject_id, "payload": payload}
 
 static func is_valid(event: Dictionary) -> bool:

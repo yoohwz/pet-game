@@ -17,5 +17,5 @@ static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int
 	# Proof value only: accumulated elapsed time is additive, so chunking is equivalent.
 	next["foundation_elapsed_seconds"] = float(next.get("foundation_elapsed_seconds", 0.0)) + float(elapsed)
 	var subject := String(next.get("active_subject", "NONE"))
-	var event := DomainEventScript.make("simulation_advanced", to_timestamp if elapsed > 0 else from_timestamp, subject, {"elapsed_seconds": elapsed}, "sim:%s:%d:%d" % [subject, from_timestamp, to_timestamp])
+	var event := DomainEventScript.make("sim:%s:%d:%d" % [subject, from_timestamp, to_timestamp], "simulation_advanced", to_timestamp if elapsed > 0 else from_timestamp, subject, {"elapsed_seconds": elapsed})
 	return {"new_state": next, "generated_events": [event], "elapsed_seconds": elapsed}
