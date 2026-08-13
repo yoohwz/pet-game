@@ -81,16 +81,50 @@ func _run() -> void:
 	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
 	ok(not LocalSaveRepositoryScript.save_profile(b), "actual replacement failure injected")
 	ok(not LocalSaveRepositoryScript.load_profile().is_empty(), "replacement failure retains valid copy")
-	# Explicit application paths: offline, monotonic session, anomaly and debug share reconciliation.
-	var session = PetGameSessionScript.new(); session.balance = BALANCE; session.profile = fixture(); session.reanchor(10.0)
-	eq(session.advance_active_to(3610.0).new_state.active_pet.vitals.energy, 93.75, "monotonic active session equals direct")
-	var before: float = session.profile.active_pet.vitals.hunger
-	session.resume_at(500, 4000.0)
-	eq(session.profile.active_pet.vitals.hunger, before, "negative wall gap does not reverse needs")
-	eq(session.profile.simulation.clock_anomaly_count, 1, "negative wall gap anomaly")
-	var debug := session.advance_debug(28800)
-	approx(debug.new_state.active_pet.vitals.energy, 43.75, "debug uses production simulation path")
-	session.free()
+	# Active time preserves fractional monotonic remainder and ignores tick cadence.
+	var session = PetGameSessionScript.new(); session.balance = BALANCE; session.profile = fixture(); session.reanchor(10.0); session.last_autosave_monotonic = 10.0
+	session.advance_active_to(11.6); session.advance_active_to(12.7)
+	eq(session.profile.simulation.last_simulated_at, 1002, "fractional ticks retain two whole seconds")
+	session.advance_active_to(13.1)
+	eq(session.profile.simulation.last_simulated_at, 1003, "fractional remainder reaches third second")
+	var cadence_a = PetGameSessionScript.new(); cadence_a.balance = BALANCE; cadence_a.profile = fixture(); cadence_a.reanchor(10.0)
+	for tick in [11.2, 12.4, 13.6, 14.8]: cadence_a.advance_active_to(tick)
+	var cadence_b = PetGameSessionScript.new(); cadence_b.balance = BALANCE; cadence_b.profile = fixture(); cadence_b.reanchor(10.0); cadence_b.advance_active_to(14.8)
+	for key in ["hunger", "hydration", "energy", "hygiene"]: approx(cadence_a.profile.active_pet.vitals[key], cadence_b.profile.active_pet.vitals[key], "irregular active cadence independence " + key)
+	# Foreground ticks mutate only in memory; autosave/pause are explicit persistence boundaries.
+	session.persistence_write_count = 0
+	for tick in [14.0, 20.0, 39.9]: session.process_at(tick)
+	eq(session.persistence_write_count, 0, "active ticks before cadence do not persist")
+	session.process_at(40.0)
+	eq(session.persistence_write_count, 1, "autosave persists once at thirty seconds")
+	session.advance_active_to(45.0); session.pause_at(45.0)
+	eq(session.persistence_write_count, 2, "pause persists latest active state")
+	# Positive and negative resume both persist and re-anchor.
+	var resume = PetGameSessionScript.new(); resume.balance = BALANCE; resume.profile = fixture(); resume.reanchor(10.0); resume.persistence_write_count = 0
+	resume.resume_at(1000 + 28800, 50.0)
+	approx(resume.profile.active_pet.vitals.energy, 50.0, "positive resume applies eight hour decay")
+	eq(resume.persistence_write_count, 1, "positive resume persists")
+	resume.advance_active_to(3650.0)
+	approx(resume.profile.active_pet.vitals.energy, 43.75, "resume re-anchor continues one hour")
+	var before: float = resume.profile.active_pet.vitals.hunger
+	resume.resume_at(500, 4000.0)
+	eq(resume.profile.active_pet.vitals.hunger, before, "negative wall gap does not reverse needs")
+	eq(resume.profile.simulation.clock_anomaly_count, 1, "negative wall gap anomaly")
+	# Debug persists and resets the active anchor so the next tick cannot create a false anomaly.
+	var debug_session = PetGameSessionScript.new(); debug_session.balance = BALANCE; debug_session.profile = fixture(); debug_session.reanchor(10.0); debug_session.persistence_write_count = 0
+	debug_session.advance_debug(28800, 10.0)
+	eq(debug_session.persistence_write_count, 1, "debug advancement persists")
+	debug_session.advance_active_to(3610.0)
+	eq(debug_session.profile.simulation.clock_anomaly_count, 0, "debug re-anchor avoids false anomaly")
+	approx(debug_session.profile.active_pet.vitals.energy, 43.75, "debug plus active hour equals nine direct hours")
+	# Testable startup path loads, reconciles, persists and anchors an offline active pet.
+	_reset(); ok(LocalSaveRepositoryScript.save_profile(fixture()), "persist startup fixture")
+	var startup = PetGameSessionScript.new(); startup.balance = BALANCE; startup.initialize_session(1000 + 28800, 70.0)
+	approx(startup.profile.active_pet.vitals.energy, 50.0, "startup reconciliation applies eight hours")
+	eq(startup.session_anchor_simulated_at, 1000 + 28800, "startup establishes simulation anchor")
+	startup.advance_active_to(3670.0)
+	approx(startup.profile.active_pet.vitals.energy, 43.75, "startup anchor continues one hour")
+	for value in [session, cadence_a, cadence_b, resume, debug_session, startup]: value.free()
 
 func _write(path: String, content: String) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE); file.store_string(content); file.close()
