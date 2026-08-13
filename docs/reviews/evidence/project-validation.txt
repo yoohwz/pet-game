@@ -4,4 +4,5 @@ godot --headless --path . --quit-after 1
 
 Result:
 Godot Engine v4.7.1.stable.official.a13da4feb
-Both commands exited successfully with no script parse errors.
+Both commands exited successfully with no script parse errors after the
+corrective pass.

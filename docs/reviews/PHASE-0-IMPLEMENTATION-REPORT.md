@@ -46,7 +46,7 @@ Wall clock: `ClockProvider.wall_utc()` uses Unix UTC in Application. Monotonic t
 
 ## Persistence and Events
 
-`user://profile.json` is validated before save; a temp write is flushed, the previous canonical file is copied to `user://backup/profile.json.bak`, then temp is renamed into place. Load falls back to a valid backup. Schema version is 1 and `SaveMigrator` is the deliberately minimal seam. Events contain `event_id`, `event_type`, `occurred_at`, `subject_id`, `payload`, and `schema_version`.
+`user://profile.json` is validated before save; temp and backup-temp representations are revalidated, then all critical directory/copy/rename results are checked. Only a valid canonical profile rotates into `user://backup/profile.json.bak`; a corrupt canonical cannot poison a valid backup. Load falls back to a valid backup. Schema version is 1 and `SaveMigrator` is the deliberately minimal seam. Events contain explicit durable `event_id`, `event_type`, `occurred_at`, `subject_id`, `payload`, and `schema_version`; simulation IDs derive deterministically from their coordinates.
 
 ## Debug Tooling
 
@@ -60,7 +60,7 @@ Exact command:
 godot --headless --path . -s res://tests/test_runner.gd
 ```
 
-Result: **18 passed, 0 failed**.
+Result: **26 passed, 0 failed**.
 
 | Evidence | Result |
 | --- | --- |
@@ -74,6 +74,21 @@ Result: **18 passed, 0 failed**.
 | Debug production-path reuse | PASS |
 
 See `docs/reviews/evidence/` for concise command output.
+
+## Acceptance Review Corrective Pass
+
+Previous review verdict: **REWORK REQUIRED**
+Pre-correction review HEAD: `c894cf6cc38fa188d5525aad263bf6bf7cd0250b`
+Corrective implementation commit: `e3b3f516d9ca79eb017281e13896de9e822fcfc3`
+Evidence/report commit: this documentation delivery commit (the final branch HEAD is authoritative).
+
+### 1. Event identity across process restarts
+
+Resolved. `DomainEvent.make()` now requires an explicit durable ID and has no process-local sequence/default-ID path. The simulation kernel derives its `simulation_advanced` event identity from subject and interval coordinates, preserving retry determinism. Tests verify explicit JSON round-trip preservation, distinct explicit IDs, same-coordinate deterministic equality, and different-coordinate inequality. Future non-deterministic application events are documented to obtain globally unique IDs outside pure Domain simulation.
+
+### 2. Persistence last-known-good preservation
+
+Resolved. New state and temp files are validated; directory, copy, and rename errors are checked. Backup rotation occurs only from a validated canonical profile through a validated backup temp. A corrupt canonical is not copied over an existing valid backup. The test-only replacement hook exercises failure after temp validation and verifies that `load_profile()` still finds a valid state.
 
 ## Files and Scope
 
