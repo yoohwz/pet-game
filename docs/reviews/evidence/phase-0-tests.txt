@@ -1,0 +1,10 @@
+Command:
+godot --headless --path . -s res://tests/test_runner.gd
+
+Result:
+Godot Engine v4.7.1.stable.official.a13da4feb
+RESULT: 26 passed, 0 failed
+
+Corrective coverage includes explicit/stable event IDs, deterministic simulation
+event identity, backup rotation, corrupt-primary preservation, and injected
+canonical replacement failure recovery.

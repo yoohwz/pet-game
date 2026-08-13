@@ -1,0 +1,3 @@
+# Persistence Contract
+
+Local data uses `user://profile.json`, with future `active/`, `memorials/`, `backup/`, and `sync/` paths. Root structures carry `schema_version: 1`. Save validates in-memory state, writes and re-validates a flushed temp file, and checks directory/copy/rename results. Only a validated canonical file may rotate into backup; a corrupt canonical never overwrites a valid backup. If canonical replacement fails, the valid canonical or backup is deliberately left recoverable. Corrupt/missing primary remains distinguishable internally and a valid backup recovers. `SaveMigrator` is the migration seam; no hypothetical migration is implemented.
