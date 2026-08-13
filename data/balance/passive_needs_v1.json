@@ -1,0 +1,7 @@
+{
+  "balance_version": 1,
+  "hunger_full_decay_seconds": 172800,
+  "hydration_full_decay_seconds": 86400,
+  "energy_full_decay_seconds": 57600,
+  "hygiene_full_decay_seconds": 259200
+}

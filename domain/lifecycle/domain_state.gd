@@ -1,7 +1,7 @@
 class_name DomainState
 extends RefCounted
 
-const SCHEMA_VERSION := 1
+const SCHEMA_VERSION := 2
 const ACTIVE_NONE := "NONE"
 const ACTIVE_EGG := "EGG"
 const ACTIVE_PET := "PET"
@@ -10,7 +10,7 @@ const LIFE_DEAD := "DEAD"
 const GROWTH_NEWBORN := "NEWBORN"
 
 static func new_profile(profile_id: String, created_at: int) -> Dictionary:
-	return {"schema_version": SCHEMA_VERSION, "profile_id": profile_id, "created_at": created_at, "active_subject": ACTIVE_NONE, "memorial_count": 0, "simulation": {"last_simulated_at": created_at, "clock_anomaly_count": 0, "simulation_version": 1}, "recent_events": []}
+	return {"schema_version": SCHEMA_VERSION, "profile_id": profile_id, "created_at": created_at, "active_subject": ACTIVE_NONE, "active_pet": null, "memorial_count": 0, "simulation": {"last_simulated_at": created_at, "clock_anomaly_count": 0, "simulation_version": 2, "balance_version": 1}, "recent_events": []}
 
 static func new_egg(egg_id: String, received_at: int, hatch_ready_at: int, shell_variant: String = "plain") -> Dictionary:
 	return {"schema_version": SCHEMA_VERSION, "egg_id": egg_id, "received_at": received_at, "hatch_ready_at": hatch_ready_at, "state": "INCUBATING", "shell_variant": shell_variant, "interaction_summary": {}}
@@ -22,7 +22,10 @@ static func validate_profile(profile: Dictionary) -> bool:
 	if int(profile.get("schema_version", 0)) != SCHEMA_VERSION: return false
 	if String(profile.get("profile_id", "")).is_empty(): return false
 	var active := String(profile.get("active_subject", ""))
-	return active in [ACTIVE_NONE, ACTIVE_EGG, ACTIVE_PET]
+	if active == ACTIVE_NONE: return profile.get("active_pet") == null
+	if active == ACTIVE_PET: return profile.get("active_pet") is Dictionary and validate_pet(profile.active_pet)
+	# Egg persistence deliberately remains a Phase 2 responsibility.
+	return false
 
 static func validate_pet(pet: Dictionary) -> bool:
 	var identity: Dictionary = pet.get("identity", {})
