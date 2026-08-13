@@ -131,6 +131,23 @@ func _run() -> void:
 	var v2_pet := fixture(); v2_pet.schema_version = 2; v2_pet.simulation.simulation_version = 2; v2_pet.erase("active_egg"); v2_pet.erase("initial_egg_issued")
 	var migrated_pet := SaveMigratorScript.migrate(v2_pet)
 	ok(DomainStateScript.validate_profile(migrated_pet) and migrated_pet.active_subject == "PET" and migrated_pet.active_egg == null and migrated_pet.initial_egg_issued, "v2 pet migrates without concurrent egg")
+	# Phase 2 root and EggState validation matrix.
+	var valid_egg := DomainStateScript.new_egg("egg:valid", 1, 2)
+	ok(DomainStateScript.validate_egg(valid_egg), "valid incubating egg")
+	valid_egg.state = "READY"; ok(DomainStateScript.validate_egg(valid_egg), "valid ready egg")
+	valid_egg.state = "HATCHING"; valid_egg.reserved_pet_id = "pet:reserved"; valid_egg.reserved_pet_seed = 7; valid_egg.hatching_started_at = 2
+	ok(DomainStateScript.validate_egg(valid_egg), "valid hatching requires complete reservation")
+	var invalid_egg: Dictionary = valid_egg.duplicate(true); invalid_egg.reserved_pet_id = null; ok(not DomainStateScript.validate_egg(invalid_egg), "hatching without pet id fails")
+	invalid_egg = valid_egg.duplicate(true); invalid_egg.reserved_pet_seed = null; ok(not DomainStateScript.validate_egg(invalid_egg), "hatching without seed fails")
+	invalid_egg = valid_egg.duplicate(true); invalid_egg.hatching_started_at = null; ok(not DomainStateScript.validate_egg(invalid_egg), "hatching without start fails")
+	invalid_egg = DomainStateScript.new_egg("egg:ready", 1, 2); invalid_egg.state = "READY"; invalid_egg.reserved_pet_id = "pet:x"; ok(not DomainStateScript.validate_egg(invalid_egg), "ready reservation id fails")
+	invalid_egg = DomainStateScript.new_egg("egg:ready", 1, 2); invalid_egg.state = "READY"; invalid_egg.reserved_pet_seed = 1; ok(not DomainStateScript.validate_egg(invalid_egg), "ready reservation seed fails")
+	invalid_egg = DomainStateScript.new_egg("egg:inc", 1, 2); invalid_egg.hatching_started_at = 1; ok(not DomainStateScript.validate_egg(invalid_egg), "incubating start fails")
+	invalid_egg = DomainStateScript.new_egg("egg:born", 1, 2); invalid_egg.born_at = 2; ok(not DomainStateScript.validate_egg(invalid_egg), "egg born_at fails")
+	var invalid_root := DomainStateScript.new_profile("root", 1); invalid_root.active_subject = "EGG"; ok(not DomainStateScript.validate_profile(invalid_root), "EGG without egg fails")
+	invalid_root = DomainStateScript.new_profile("root", 1); invalid_root.active_subject = "PET"; ok(not DomainStateScript.validate_profile(invalid_root), "PET without pet fails")
+	invalid_root = DomainStateScript.new_profile("root", 1); invalid_root.active_subject = "NONE"; invalid_root.active_egg = DomainStateScript.new_egg("egg", 1, 2); ok(not DomainStateScript.validate_profile(invalid_root), "NONE with egg fails")
+	invalid_root = fixture(); invalid_root.active_egg = DomainStateScript.new_egg("egg", 1, 2); ok(not DomainStateScript.validate_profile(invalid_root), "both egg and pet fail")
 	_reset()
 	var egg_session = PetGameSessionScript.new(); egg_session.balance = BALANCE; egg_session.lifecycle = {"lifecycle_version": 1, "initial_incubation_seconds": 14400, "newborn_protection_seconds": 43200}; egg_session.initialize_session(1000, 10.0)
 	eq(egg_session.profile.active_subject, "EGG", "first initialization issues egg")
@@ -140,6 +157,13 @@ func _run() -> void:
 	var same_egg: String = egg_session.profile.active_egg.egg_id
 	var restart = PetGameSessionScript.new(); restart.balance = BALANCE; restart.lifecycle = egg_session.lifecycle; restart.initialize_session(1000, 20.0)
 	eq(restart.profile.active_egg.egg_id, same_egg, "restart does not issue second egg")
+	# Actual startup reconciliation from persisted INCUBATING to offline READY.
+	_reset(); var offline_profile := DomainStateScript.new_profile("profile:offline", 1000); offline_profile.initial_egg_issued = true; offline_profile.active_subject = "EGG"; offline_profile.active_egg = DomainStateScript.new_egg("egg:offline", 1000, 15400)
+	ok(LocalSaveRepositoryScript.save_profile(offline_profile), "persist incubating startup fixture")
+	var offline_start = PetGameSessionScript.new(); offline_start.balance = BALANCE; offline_start.lifecycle = egg_session.lifecycle; offline_start.initialize_session(1000 + 28800, 20.0)
+	eq(offline_start.profile.active_egg.state, "READY", "startup offline incubation reaches ready")
+	eq(offline_start.profile.active_pet, null, "startup ready creates no pet")
+	eq(LocalSaveRepositoryScript.load_profile().active_egg.state, "READY", "startup reconciled ready persists")
 	var before_ready: Dictionary = SimulationKernelScript.simulate(restart.profile, 1000, 1000 + 14399, BALANCE, egg_session.lifecycle).new_state
 	eq(before_ready.active_egg.state, "INCUBATING", "egg remains incubating before threshold")
 	var ready_once := SimulationKernelScript.simulate(restart.profile, 1000, 15400, BALANCE, egg_session.lifecycle)
@@ -175,7 +199,13 @@ func _run() -> void:
 	eq(recovery.profile.active_pet.vitals.hunger, 100.0, "ready waiting causes no retroactive hunger")
 	var post_birth: Dictionary = SimulationKernelScript.simulate(recovery.profile, 16000, 19600, BALANCE, egg_session.lifecycle).new_state
 	approx(post_birth.active_pet.vitals.energy, 93.75, "passive needs begin only after birth")
-	for value in [egg_session, restart, recovery]: value.free()
+	# Backward completion clamps born_at to the simulation timeline and commits anomaly only on success.
+	var backward = PetGameSessionScript.new(); backward.balance = BALANCE; backward.lifecycle = egg_session.lifecycle; backward.profile = DomainStateScript.new_profile("profile:back", 20000); backward.profile.initial_egg_issued = true; backward.profile.active_subject = "EGG"; backward.profile.active_egg = DomainStateScript.new_egg("egg:back", 1000, 2); backward.profile.active_egg.state = "HATCHING"; backward.profile.active_egg.reserved_pet_id = "pet:back"; backward.profile.active_egg.reserved_pet_seed = 3; backward.profile.active_egg.hatching_started_at = 3
+	ok(backward.complete_hatching(19000, 40.0), "backward-clock completion succeeds")
+	eq(backward.profile.active_pet.identity.born_at, 20000, "backward clock clamps born_at")
+	eq(backward.profile.simulation.clock_anomaly_count, 1, "backward completion increments anomaly")
+	eq(backward.profile.simulation.last_simulated_at, 20000, "birth retains simulation timeline")
+	for value in [egg_session, restart, recovery, offline_start, backward]: value.free()
 	for value in [session, cadence_a, cadence_b, resume, debug_session, startup]: value.free()
 
 func _write(path: String, content: String) -> void:

@@ -33,8 +33,10 @@ static func validate_egg(egg: Dictionary) -> bool:
 	var state := String(egg.get("state", ""))
 	if state not in ["INCUBATING", "READY", "HATCHING"]: return false
 	if not egg.has("received_at") or not egg.has("hatch_ready_at"): return false
-	if state == "HATCHING": return not String(egg.get("reserved_pet_id", "")).is_empty() and egg.get("hatching_started_at") != null
-	return egg.get("hatching_started_at") == null and egg.get("reserved_pet_id") == null
+	if state == "HATCHING":
+		var reserved_id = egg.get("reserved_pet_id")
+		return reserved_id is String and not String(reserved_id).is_empty() and egg.get("reserved_pet_seed") != null and egg.get("hatching_started_at") != null
+	return egg.get("hatching_started_at") == null and egg.get("reserved_pet_id") == null and egg.get("reserved_pet_seed") == null
 
 static func validate_pet(pet: Dictionary) -> bool:
 	var identity: Dictionary = pet.get("identity", {})
