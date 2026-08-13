@@ -30,7 +30,7 @@ func fixture(at := 1000, id := "pet:test") -> Dictionary:
 func _run() -> void:
 	_reset()
 	var none := DomainStateScript.new_profile("profile:none", 1000)
-	eq(none.schema_version, 2, "new profile uses schema v2")
+	eq(none.schema_version, 3, "new profile uses schema v3")
 	ok(DomainStateScript.validate_profile(none), "normal v2 profile valid")
 	eq(SimulationKernelScript.simulate(none, 1000, 4600, BALANCE).new_state.active_pet, null, "no pet remains absent")
 	var p := fixture()
@@ -124,6 +124,58 @@ func _run() -> void:
 	eq(startup.session_anchor_simulated_at, 1000 + 28800, "startup establishes simulation anchor")
 	startup.advance_active_to(3670.0)
 	approx(startup.profile.active_pet.vitals.energy, 43.75, "startup anchor continues one hour")
+	# Phase 2: migration, exactly-once initial egg, offline incubation and safe hatching.
+	var v2_none := {"schema_version": 2, "profile_id": "v2:none", "created_at": 1, "active_subject": "NONE", "active_pet": null, "memorial_count": 0, "simulation": {"last_simulated_at": 1, "clock_anomaly_count": 0, "simulation_version": 2, "balance_version": 1}, "recent_events": []}
+	var migrated_v3 := SaveMigratorScript.migrate(v2_none)
+	ok(DomainStateScript.validate_profile(migrated_v3) and migrated_v3.active_egg == null and not migrated_v3.initial_egg_issued, "v2 NONE migrates to v3 without egg")
+	var v2_pet := fixture(); v2_pet.schema_version = 2; v2_pet.simulation.simulation_version = 2; v2_pet.erase("active_egg"); v2_pet.erase("initial_egg_issued")
+	var migrated_pet := SaveMigratorScript.migrate(v2_pet)
+	ok(DomainStateScript.validate_profile(migrated_pet) and migrated_pet.active_subject == "PET" and migrated_pet.active_egg == null and migrated_pet.initial_egg_issued, "v2 pet migrates without concurrent egg")
+	_reset()
+	var egg_session = PetGameSessionScript.new(); egg_session.balance = BALANCE; egg_session.lifecycle = {"lifecycle_version": 1, "initial_incubation_seconds": 14400, "newborn_protection_seconds": 43200}; egg_session.initialize_session(1000, 10.0)
+	eq(egg_session.profile.active_subject, "EGG", "first initialization issues egg")
+	eq(egg_session.profile.active_egg.received_at, 1000, "egg received at initialization")
+	eq(egg_session.profile.active_egg.hatch_ready_at, 15400, "egg incubation is four hours")
+	ok(egg_session.profile.initial_egg_issued and egg_session.profile.active_pet == null, "initial egg is sole active subject")
+	var same_egg: String = egg_session.profile.active_egg.egg_id
+	var restart = PetGameSessionScript.new(); restart.balance = BALANCE; restart.lifecycle = egg_session.lifecycle; restart.initialize_session(1000, 20.0)
+	eq(restart.profile.active_egg.egg_id, same_egg, "restart does not issue second egg")
+	var before_ready: Dictionary = SimulationKernelScript.simulate(restart.profile, 1000, 1000 + 14399, BALANCE, egg_session.lifecycle).new_state
+	eq(before_ready.active_egg.state, "INCUBATING", "egg remains incubating before threshold")
+	var ready_once := SimulationKernelScript.simulate(restart.profile, 1000, 15400, BALANCE, egg_session.lifecycle)
+	eq(ready_once.new_state.active_egg.state, "READY", "egg becomes ready at threshold")
+	eq(ready_once.new_state.active_pet, null, "ready egg never auto creates pet")
+	var two_hours: Dictionary = SimulationKernelScript.simulate(restart.profile, 1000, 8200, BALANCE, egg_session.lifecycle).new_state
+	var ready_chunk := SimulationKernelScript.simulate(two_hours, 8200, 15400, BALANCE, egg_session.lifecycle)
+	eq(ready_once.generated_events[0].event_id, ready_chunk.generated_events[0].event_id, "egg ready event identity is chunk independent")
+	# Explicit egg touch persists but cannot alter incubation or create a pet.
+	ok(egg_session.touch_egg(1100), "touch incubating egg")
+	eq(egg_session.profile.active_egg.interaction_summary.touch_count, 1, "egg touch increments summary")
+	eq(egg_session.profile.active_egg.hatch_ready_at, 15400, "touch does not alter incubation")
+	# Offline debug advance reaches READY without unattended birth.
+	egg_session.advance_debug(14400, 10.0)
+	eq(egg_session.profile.active_egg.state, "READY", "offline/debug incubation reaches READY")
+	eq(egg_session.profile.active_pet, null, "READY remains egg only")
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	ok(not egg_session.begin_hatching(15400, 10.0) and egg_session.profile.active_egg.state == "READY", "begin failure leaves effective READY state")
+	ok(egg_session.begin_hatching(15400, 10.0), "begin hatching persists reservation")
+	var reserved: String = egg_session.profile.active_egg.reserved_pet_id
+	ok(not reserved.is_empty() and egg_session.profile.active_pet == null, "hatching reserves one identity without pet")
+	var recovery = PetGameSessionScript.new(); recovery.balance = BALANCE; recovery.lifecycle = egg_session.lifecycle; recovery.initialize_session(15400, 30.0)
+	eq(recovery.profile.active_egg.state, "HATCHING", "restart preserves HATCHING")
+	eq(recovery.profile.active_egg.reserved_pet_id, reserved, "restart retains reserved identity")
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	ok(not recovery.complete_hatching(16000, 30.0), "completion failure returns false")
+	eq(recovery.profile.active_egg.state, "HATCHING", "completion failure leaves in-memory hatching")
+	eq(LocalSaveRepositoryScript.load_profile().active_egg.state, "HATCHING", "completion failure leaves persisted hatching")
+	ok(recovery.complete_hatching(16000, 30.0), "completion succeeds on retry")
+	eq(recovery.profile.active_pet.identity.pet_id, reserved, "successful pet uses reserved identity")
+	eq(recovery.profile.active_pet.identity.born_at, 16000, "born_at is successful completion time")
+	eq(recovery.profile.active_pet.life.newborn_protection_until, 59200, "newborn protection metadata is twelve hours")
+	eq(recovery.profile.active_pet.vitals.hunger, 100.0, "ready waiting causes no retroactive hunger")
+	var post_birth: Dictionary = SimulationKernelScript.simulate(recovery.profile, 16000, 19600, BALANCE, egg_session.lifecycle).new_state
+	approx(post_birth.active_pet.vitals.energy, 93.75, "passive needs begin only after birth")
+	for value in [egg_session, restart, recovery]: value.free()
 	for value in [session, cadence_a, cadence_b, resume, debug_session, startup]: value.free()
 
 func _write(path: String, content: String) -> void:

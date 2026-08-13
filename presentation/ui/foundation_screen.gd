@@ -11,10 +11,24 @@ func _ready() -> void:
 	title.text = "PET PROJECT FOUNDATION"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(title)
-	var debug_pet := Button.new()
-	debug_pet.text = "Create Debug Pet (development fixture)"
-	debug_pet.pressed.connect(func(): GameSession.create_debug_pet(GameSession.clock.wall_utc()); refresh())
-	panel.add_child(debug_pet)
+	var action := Button.new()
+	var subject := String(GameSession.profile.get("active_subject", "NONE"))
+	var egg_value = GameSession.profile.get("active_egg", {})
+	var egg: Dictionary = egg_value if egg_value is Dictionary else {}
+	if subject == "EGG":
+		if String(egg.get("state", "")) in ["INCUBATING", "READY"]:
+			action.text = "Touch Egg"
+			action.pressed.connect(func(): GameSession.touch_egg(GameSession.clock.wall_utc()); refresh())
+			panel.add_child(action)
+		if String(egg.get("state", "")) == "READY":
+			var hatch := Button.new()
+			hatch.text = "Hatch Egg"
+			hatch.pressed.connect(func(): _hatch())
+			panel.add_child(hatch)
+		elif String(egg.get("state", "")) == "HATCHING":
+			action.text = "Continue Hatching"
+			action.pressed.connect(func(): _hatch())
+			panel.add_child(action)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(buttons)
@@ -32,7 +46,8 @@ func _ready() -> void:
 func refresh() -> void:
 	var p: Dictionary = GameSession.profile
 	var s: Dictionary = p.get("simulation", {})
-	var pet: Dictionary = p.get("active_pet", {})
+	var pet_value = p.get("active_pet", {})
+	var pet: Dictionary = pet_value if pet_value is Dictionary else {}
 	var identity: Dictionary = pet.get("identity", {})
 	var life: Dictionary = pet.get("life", {})
 	var vitals: Dictionary = pet.get("vitals", {})
@@ -40,3 +55,13 @@ func refresh() -> void:
 	text += "Pet ID: %s\nLife state: %s\nGrowth stage: %s\nHunger: %s\nHydration: %s\nEnergy: %s\nHygiene: %s\nMood: %s\nHealth: %s\n\nRecent domain events:\n" % [identity.get("pet_id", "No active pet"), life.get("life_state", "n/a"), life.get("growth_stage", "n/a"), vitals.get("hunger", "n/a"), vitals.get("hydration", "n/a"), vitals.get("energy", "n/a"), vitals.get("hygiene", "n/a"), vitals.get("mood", "n/a"), vitals.get("health", "n/a")]
 	for event in p.get("recent_events", []): text += "• %s @ %s\n" % [event.get("event_type"), event.get("occurred_at")]
 	inspector.text = text
+
+func _hatch() -> void:
+	var now := GameSession.clock.wall_utc()
+	var mono := GameSession.clock.monotonic_seconds()
+	if String(GameSession.profile.get("active_egg", {}).get("state", "")) == "READY":
+		GameSession.begin_hatching(now, mono)
+		refresh()
+		await get_tree().create_timer(0.35).timeout
+	GameSession.complete_hatching(GameSession.clock.wall_utc(), GameSession.clock.monotonic_seconds())
+	refresh()

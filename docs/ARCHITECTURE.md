@@ -1,3 +1,3 @@
 # Architecture
 
-`Presentation → Application → Domain`; Infrastructure implements persistence for Application. Domain is pure/near-pure state, rules, events and simulation, and receives the balance dictionary explicitly. It must not import scenes, filesystem, networking, wall-clock APIs, animation, or random application services. Application owns monotonic anchors, in-memory advancement, explicit persistence boundaries, and wall-clock startup/resume reconciliation. Presentation invokes only application debug APIs.
+`Presentation → Application → Domain`; Infrastructure implements persistence for Application. Domain owns deterministic egg threshold transition but has no clock/random/filesystem/UI dependency. Application owns initial issuance, durable random IDs, player-present hatching candidate transactions, and wall/monotonic coordination. Infrastructure atomically saves the root lifecycle state.
