@@ -1,8 +1,8 @@
 # Roadmap
 
-1. Phase 0 — Foundation
-2. Phase 1 — Offline Simulation
-3. Phase 2 — Egg Lifecycle
+1. Phase 0 — ACCEPTED / MERGED
+2. Phase 1 — IMPLEMENTED CANDIDATE
+3. Phase 2 — NOT STARTED (Egg Lifecycle)
 4. Phase 3 — Living Pet
 5. Phase 4 — Survival & Death
 6. Phase 5 — Memory & Relationship
