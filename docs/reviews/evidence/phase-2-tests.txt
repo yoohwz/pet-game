@@ -1,0 +1,8 @@
+Command: godot --headless --path . -s res://tests/test_runner.gd
+Result: 125 passed, 0 failed
+
+Corrective coverage: HATCHING reservation validation, malformed root combinations,
+startup offline incubation persistence, and backward-clock hatch completion.
+
+Corrective pass 2: stable lifecycle button identity, no rebuild on unchanged state,
+and same-session INCUBATING→READY→HATCHING→PET rendering transitions.

@@ -1,9 +1,20 @@
+class_name FoundationScreen
 extends Control
 
+var panel: VBoxContainer
+var lifecycle_panel: VBoxContainer
 var inspector: Label
+var lifecycle_status: Label
+var lifecycle_remaining: Label
+var rendered_lifecycle_signature := ""
+var lifecycle_rebuild_count := 0
+var session_override: PetGameSession
+
+func _session():
+	return session_override if session_override != null else get_node_or_null("/root/GameSession")
 
 func _ready() -> void:
-	var panel := VBoxContainer.new()
+	panel = VBoxContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 18)
 	panel.add_theme_constant_override("separation", 8)
 	add_child(panel)
@@ -11,17 +22,15 @@ func _ready() -> void:
 	title.text = "PET PROJECT FOUNDATION"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(title)
-	var debug_pet := Button.new()
-	debug_pet.text = "Create Debug Pet (development fixture)"
-	debug_pet.pressed.connect(func(): GameSession.create_debug_pet(GameSession.clock.wall_utc()); refresh())
-	panel.add_child(debug_pet)
+	lifecycle_panel = VBoxContainer.new()
+	panel.add_child(lifecycle_panel)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(buttons)
 	for item in [["+10m", 600], ["+1h", 3600], ["+8h", 28800], ["+1d", 86400], ["+7d", 604800]]:
 		var button := Button.new()
 		button.text = item[0]
-		button.pressed.connect(func(): GameSession.advance_debug(item[1]); refresh())
+		button.pressed.connect(func(): _session().advance_debug(item[1]); refresh())
 		buttons.add_child(button)
 	inspector = Label.new()
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -29,14 +38,93 @@ func _ready() -> void:
 	panel.add_child(inspector)
 	refresh()
 
+func _process(_delta: float) -> void:
+	refresh()
+
 func refresh() -> void:
-	var p: Dictionary = GameSession.profile
+	refresh_lifecycle_panel()
+	refresh_inspector()
+
+func lifecycle_signature(profile: Dictionary) -> String:
+	var subject := String(profile.get("active_subject", "NONE"))
+	if subject == "EGG": return "EGG:%s" % String(profile.get("active_egg", {}).get("state", "INVALID"))
+	if subject == "PET": return "PET:%s" % String(profile.get("active_pet", {}).get("life", {}).get("growth_stage", "UNKNOWN"))
+	return "NONE"
+
+func refresh_lifecycle_panel() -> void:
+	var signature := lifecycle_signature(_session().profile)
+	if signature != rendered_lifecycle_signature:
+		_rebuild_lifecycle_panel(signature)
+		rendered_lifecycle_signature = signature
+	_update_lifecycle_dynamic_text()
+
+func _rebuild_lifecycle_panel(signature: String) -> void:
+	for child in lifecycle_panel.get_children(): child.free()
+	lifecycle_rebuild_count += 1
+	lifecycle_status = Label.new()
+	lifecycle_panel.add_child(lifecycle_status)
+	lifecycle_remaining = null
+	if signature == "EGG:INCUBATING":
+		lifecycle_remaining = Label.new()
+		lifecycle_panel.add_child(lifecycle_remaining)
+		_add_button("Touch Egg", func(): _session().touch_egg(_session().clock.wall_utc()); refresh())
+	elif signature == "EGG:READY":
+		_add_button("Touch Egg", func(): _session().touch_egg(_session().clock.wall_utc()); refresh())
+		_add_button("Hatch Egg", func(): _hatch())
+	elif signature == "EGG:HATCHING":
+		_add_button("Continue Hatching", func(): _hatch())
+	elif signature.begins_with("PET:"):
+		pass
+
+func _update_lifecycle_dynamic_text() -> void:
+	var p: Dictionary = _session().profile
+	var signature := lifecycle_signature(p)
+	if signature == "EGG:INCUBATING":
+		lifecycle_status.text = "Egg\nStatus: Incubating"
+		var remaining := int(p.get("active_egg", {}).get("hatch_ready_at", 0)) - int(p.get("simulation", {}).get("last_simulated_at", 0))
+		lifecycle_remaining.text = "Remaining: %s" % _remaining(remaining)
+	elif signature == "EGG:READY": lifecycle_status.text = "Egg\nStatus: Ready to hatch"
+	elif signature == "EGG:HATCHING": lifecycle_status.text = "Egg\nStatus: Hatching"
+	elif signature.begins_with("PET:"): lifecycle_status.text = "Newborn Pet"
+	else: lifecycle_status.text = "No active subject"
+
+func has_lifecycle_button(text: String) -> bool:
+	for child in lifecycle_panel.get_children():
+		if child is Button and child.text == text: return true
+	return false
+
+func lifecycle_button(text: String) -> Button:
+	for child in lifecycle_panel.get_children():
+		if child is Button and child.text == text: return child
+	return null
+
+func refresh_inspector() -> void:
+	var p: Dictionary = _session().profile
 	var s: Dictionary = p.get("simulation", {})
-	var pet: Dictionary = p.get("active_pet", {})
+	var pet_value = p.get("active_pet", {})
+	var pet: Dictionary = pet_value if pet_value is Dictionary else {}
 	var identity: Dictionary = pet.get("identity", {})
 	var life: Dictionary = pet.get("life", {})
 	var vitals: Dictionary = pet.get("vitals", {})
-	var text := "Active Subject: %s\nSchema Version: %s\nSimulation Version: %s\nBalance Version: %s\n\nCurrent UTC: %s\nLast Simulated UTC: %s\nClock anomalies: %s\n\n" % [p.get("active_subject", "NONE"), p.get("schema_version", "?"), s.get("simulation_version", "?"), s.get("balance_version", "?"), GameSession.clock.wall_utc(), s.get("last_simulated_at", "?"), s.get("clock_anomaly_count", 0)]
-	text += "Pet ID: %s\nLife state: %s\nGrowth stage: %s\nHunger: %s\nHydration: %s\nEnergy: %s\nHygiene: %s\nMood: %s\nHealth: %s\n\nRecent domain events:\n" % [identity.get("pet_id", "No active pet"), life.get("life_state", "n/a"), life.get("growth_stage", "n/a"), vitals.get("hunger", "n/a"), vitals.get("hydration", "n/a"), vitals.get("energy", "n/a"), vitals.get("hygiene", "n/a"), vitals.get("mood", "n/a"), vitals.get("health", "n/a")]
-	for event in p.get("recent_events", []): text += "• %s @ %s\n" % [event.get("event_type"), event.get("occurred_at")]
-	inspector.text = text
+	var recent := "\n\nRecent domain events:"
+	for event in p.get("recent_events", []): recent += "\n• %s @ %s" % [event.get("event_type"), event.get("occurred_at")]
+	inspector.text = "Active Subject: %s\nSchema Version: %s\nCurrent UTC: %s\nLast Simulated UTC: %s\nClock anomalies: %s\n\nPet ID: %s\nBorn At: %s\nLife state: %s\nGrowth stage: %s\nHunger: %s\nHydration: %s\nEnergy: %s\nHygiene: %s\nMood: %s\nHealth: %s%s" % [p.get("active_subject", "NONE"), p.get("schema_version", "?"), _session().clock.wall_utc(), s.get("last_simulated_at", "?"), s.get("clock_anomaly_count", 0), identity.get("pet_id", "No active pet"), identity.get("born_at", "n/a"), life.get("life_state", "n/a"), life.get("growth_stage", "n/a"), vitals.get("hunger", "n/a"), vitals.get("hydration", "n/a"), vitals.get("energy", "n/a"), vitals.get("hygiene", "n/a"), vitals.get("mood", "n/a"), vitals.get("health", "n/a"), recent]
+
+func _add_button(text: String, callback: Callable) -> void:
+	var button := Button.new()
+	button.text = text
+	button.pressed.connect(callback)
+	lifecycle_panel.add_child(button)
+
+func _remaining(seconds: int) -> String:
+	return "%dh %dm" % [max(0, seconds) / 3600, (max(0, seconds) % 3600) / 60]
+
+func _hatch() -> void:
+	var now: int = _session().clock.wall_utc()
+	var mono: float = _session().clock.monotonic_seconds()
+	if String(_session().profile.get("active_egg", {}).get("state", "")) == "READY":
+		if not _session().begin_hatching(now, mono): return
+		refresh()
+		await get_tree().create_timer(0.35).timeout
+	_session().complete_hatching(_session().clock.wall_utc(), _session().clock.monotonic_seconds())
+	refresh()

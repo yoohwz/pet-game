@@ -1,0 +1,2 @@
+Commands: godot --headless --path . --editor --quit; godot --headless --path . --quit-after 1
+Result: both commands completed successfully after the lifecycle UI control pass.

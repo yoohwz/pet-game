@@ -4,7 +4,7 @@
 Keep dependencies `Presentation → Application → Domain`; Infrastructure is called by Application. Never introduce Domain → UI, filesystem, or network dependencies.
 
 ## Time and lifecycle
-Domain logic receives explicit timestamps and balance configuration and never reads a system clock. Foreground time comes from Application's monotonic anchor with fractional remainder retained; offline/resume time comes from Application wall-clock reconciliation. Foreground ticks are in-memory only, while autosave and lifecycle/debug boundaries persist explicitly. Durable event IDs are explicit; deterministic simulation IDs derive only from simulation coordinates, while future non-deterministic IDs originate outside Domain. Preserve egg/pet distinction, immutable pet identity and birth time, and the invalid `DEAD → ALIVE` transition.
+Domain logic receives explicit timestamps/configuration and never reads a system clock. Preserve egg/pet distinction: READY never creates a pet; HATCHING requires reserved ID, seed and start timestamp; only successful atomic completion creates immutable pet identity/birth time. Presentation lifecycle controls rebuild only on lifecycle-state transition; dynamic text must not replace stable action nodes every frame. Foreground ticks are in-memory only, while autosave and lifecycle/debug boundaries persist explicitly.
 
 ## Scope and dependencies
 Implement only the active phase. Prefer explicit state and small deterministic abstractions. Do not add third-party dependencies without an active-task justification.

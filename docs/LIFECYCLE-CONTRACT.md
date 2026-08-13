@@ -1,5 +1,5 @@
 # Lifecycle Contract
 
-Future lifecycle: `NEW GAME → EGG → INCUBATING → READY → HATCHING → ALIVE → NEWBORN → CHILD → ADOLESCENT → ADULT → DEAD → MEMORIAL`.
+Lifecycle: `NEW GAME → EGG → INCUBATING → READY → HATCHING → ALIVE → NEWBORN → CHILD → ADOLESCENT → ADULT → DEAD → MEMORIAL`. Phase 2 implements through NEWBORN only.
 
-`life_state` (`ALIVE`/`DEAD`) and `growth_stage` are separate. A profile has at most one active subject; active egg and pet cannot coexist. Egg state has no `born_at`. A pet is created once, its `pet_id`/`born_at` are immutable, dead pets are not simulated, and `DEAD → ALIVE` is invalid. Future hatching persists HATCHING, plays presentation, creates/persists exactly one pet, then removes egg idempotently. Future death calculates exact time, persists DEAD, emits once, and creates an idempotent memorial.
+`life_state` (`ALIVE`/`DEAD`) and `growth_stage` are separate. A profile has at most one active subject; active egg and pet cannot coexist. Egg state has no `born_at`. INCUBATING/READY have no reservation fields. HATCHING requires a reserved pet ID, seed and start timestamp. INCUBATING becomes READY at its persisted threshold without creating a pet. Completion builds and atomically saves a PET candidate before replacing memory; failed completion remains HATCHING. A backward wall clock clamps birth to the current simulation timeline and records an anomaly.

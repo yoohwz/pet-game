@@ -1,0 +1,5 @@
+{
+  "lifecycle_version": 1,
+  "initial_incubation_seconds": 14400,
+  "newborn_protection_seconds": 43200
+}

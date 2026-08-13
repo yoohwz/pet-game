@@ -6,6 +6,7 @@ const DomainStateScript = preload("res://domain/lifecycle/domain_state.gd")
 const SimulationKernelScript = preload("res://domain/simulation/simulation_kernel.gd")
 const LocalSaveRepositoryScript = preload("res://infrastructure/persistence/local_save_repository.gd")
 const DefaultBalanceScript = preload("res://application/game_session/default_balance.gd")
+const DefaultLifecycleScript = preload("res://application/lifecycle/default_lifecycle.gd")
 
 var clock := ClockProviderScript.new()
 var profile: Dictionary = {}
@@ -14,18 +15,29 @@ var session_anchor_simulated_at := 0
 var session_anchor_monotonic := 0.0
 var last_autosave_monotonic := 0.0
 var balance: Dictionary = {}
+var lifecycle: Dictionary = {}
+var id_rng := RandomNumberGenerator.new()
 var persistence_write_count := 0 # Narrow observability seam for headless cadence tests.
 
 func _ready() -> void:
 	balance = DefaultBalanceScript.load_balance()
+	lifecycle = DefaultLifecycleScript.load_config()
+	id_rng.randomize()
 	initialize_session(clock.wall_utc(), clock.monotonic_seconds())
 
 func initialize_session(wall_now: int, monotonic_now: float) -> void:
+	id_rng.randomize()
 	profile = LocalSaveRepositoryScript.load_profile()
 	if profile.is_empty():
 		profile = DomainStateScript.new_profile(_new_id("profile"), wall_now)
+		_issue_initial_egg(profile, wall_now)
 		persist_profile()
-	reconcile_to(wall_now, true)
+	else:
+		if not bool(profile.get("initial_egg_issued", false)) and String(profile.get("active_subject", "NONE")) == "NONE":
+			var issued: Dictionary = profile.duplicate(true)
+			_issue_initial_egg(issued, wall_now)
+			if save_candidate(issued): profile = issued
+		reconcile_to(wall_now, true)
 	reanchor(monotonic_now)
 	last_autosave_monotonic = monotonic_now
 
@@ -36,7 +48,7 @@ func reconcile_to(current_wall_time: int, persist := true) -> Dictionary:
 
 func advance_in_memory_to(target_time: int) -> Dictionary:
 	var from_time := int(profile.get("simulation", {}).get("last_simulated_at", target_time))
-	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance)
+	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle)
 	profile = result.new_state
 	_append_events(result.generated_events)
 	return result
@@ -44,6 +56,10 @@ func advance_in_memory_to(target_time: int) -> Dictionary:
 func persist_profile() -> bool:
 	persistence_write_count += 1
 	return LocalSaveRepositoryScript.save_profile(profile)
+
+func save_candidate(candidate: Dictionary) -> bool:
+	persistence_write_count += 1
+	return LocalSaveRepositoryScript.save_profile(candidate)
 
 func advance_debug(seconds: int, monotonic_now := -1.0) -> Dictionary:
 	var last := int(profile.get("simulation", {}).get("last_simulated_at", clock.wall_utc()))
@@ -79,6 +95,53 @@ func reset_debug_pet() -> void:
 	profile["active_pet"] = null
 	persist_profile()
 
+func touch_egg(wall_now: int) -> bool:
+	if String(profile.get("active_subject", "")) != "EGG": return false
+	var state := String(profile.get("active_egg", {}).get("state", ""))
+	if state not in ["INCUBATING", "READY"]: return false
+	var candidate: Dictionary = profile.duplicate(true)
+	var summary: Dictionary = candidate.active_egg.get("interaction_summary", {}).duplicate(true)
+	summary["touch_count"] = int(summary.get("touch_count", 0)) + 1
+	summary["last_interacted_at"] = wall_now
+	candidate.active_egg["interaction_summary"] = summary
+	_append_event_to(candidate, _application_event("egg_interacted", wall_now, candidate.active_egg.egg_id, {"touch_count": summary.touch_count}))
+	if not save_candidate(candidate): return false
+	profile = candidate
+	return true
+
+func begin_hatching(wall_now: int, monotonic_now: float) -> bool:
+	if String(profile.get("active_subject", "")) != "EGG" or String(profile.get("active_egg", {}).get("state", "")) != "READY": return false
+	var candidate: Dictionary = profile.duplicate(true)
+	var egg: Dictionary = candidate.active_egg
+	egg["state"] = "HATCHING"
+	egg["hatching_started_at"] = max(wall_now, int(candidate.simulation.last_simulated_at))
+	egg["reserved_pet_id"] = _new_durable_id("pet")
+	egg["reserved_pet_seed"] = int(id_rng.randi())
+	candidate["active_egg"] = egg
+	_append_event_to(candidate, _application_event("hatching_started", int(egg.hatching_started_at), egg.egg_id, {"reserved_pet_id": egg.reserved_pet_id}))
+	if not save_candidate(candidate): return false
+	profile = candidate
+	reanchor(monotonic_now)
+	return true
+
+func complete_hatching(wall_now: int, monotonic_now: float) -> bool:
+	if String(profile.get("active_subject", "")) != "EGG" or String(profile.get("active_egg", {}).get("state", "")) != "HATCHING": return false
+	var candidate: Dictionary = profile.duplicate(true)
+	var egg: Dictionary = candidate.active_egg
+	var born_at: int = max(wall_now, int(candidate.simulation.last_simulated_at))
+	if wall_now < int(candidate.simulation.last_simulated_at): candidate.simulation.clock_anomaly_count = int(candidate.simulation.get("clock_anomaly_count", 0)) + 1
+	var pet := DomainStateScript.new_pet(String(egg.reserved_pet_id), "Newborn", born_at, int(egg.reserved_pet_seed))
+	pet.life.newborn_protection_until = born_at + int(lifecycle.get("newborn_protection_seconds", 43200))
+	candidate["active_subject"] = "PET"
+	candidate["active_egg"] = null
+	candidate["active_pet"] = pet
+	candidate.simulation.last_simulated_at = born_at
+	_append_event_to(candidate, _application_event("pet_hatched", born_at, pet.identity.pet_id, {"egg_id": egg.egg_id, "born_at": born_at}))
+	if not save_candidate(candidate): return false
+	profile = candidate
+	reanchor(monotonic_now)
+	return true
+
 func reanchor(monotonic_now: float) -> void:
 	session_anchor_simulated_at = int(profile.get("simulation", {}).get("last_simulated_at", 0))
 	session_anchor_monotonic = monotonic_now
@@ -109,5 +172,24 @@ func _append_events(events: Array) -> void:
 	while recent.size() > 10: recent.pop_front()
 	profile["recent_events"] = recent
 
+func _append_event_to(target: Dictionary, event: Dictionary) -> void:
+	var recent: Array = target.get("recent_events", [])
+	recent.append(event)
+	while recent.size() > 10: recent.pop_front()
+	target["recent_events"] = recent
+
+func _issue_initial_egg(target: Dictionary, wall_now: int) -> void:
+	target["initial_egg_issued"] = true
+	target["active_subject"] = "EGG"
+	target["active_egg"] = DomainStateScript.new_egg(_new_durable_id("egg"), wall_now, wall_now + int(lifecycle.get("initial_incubation_seconds", 14400)))
+	target["active_pet"] = null
+	_append_event_to(target, _application_event("egg_received", wall_now, target.active_egg.egg_id, {}))
+
+func _application_event(event_type: String, at: int, subject_id: String, payload: Dictionary) -> Dictionary:
+	return {"schema_version": 1, "event_id": _new_durable_id("evt"), "event_type": event_type, "occurred_at": at, "subject_id": subject_id, "payload": payload}
+
 func _new_id(prefix: String) -> String:
-	return "%s:%s" % [prefix, str(Time.get_ticks_usec())]
+	return _new_durable_id(prefix)
+
+func _new_durable_id(prefix: String) -> String:
+	return "%s:%08x%08x" % [prefix, id_rng.randi(), id_rng.randi()]
