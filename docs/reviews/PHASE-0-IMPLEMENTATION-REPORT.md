@@ -12,8 +12,8 @@ Base branch: `main`
 Working branch: `codex/phase-0-foundation`  
 Base SHA: `688dc7a0d346aa94151ad65e6fece2d099cac6d4`  
 Implementation SHA: `1421b2c6a6cd22eca41ff8bbff1dba78472fb115`  
-Final report HEAD: recorded by the final report-only commit and GitHub branch HEAD  
-Pull request: pending branch push
+Final report commit: `0c76c3b5cb90000b738ba74cf55e440b36619a65`  
+Pull request: [#1](https://github.com/yoohwz/pet-game/pull/1)
 
 Repository status: clean before this report commit.
 
