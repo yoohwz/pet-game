@@ -2,7 +2,8 @@
 
 1. Phase 0 — ACCEPTED / MERGED
 2. Phase 1 — ACCEPTED / MERGED
-3. Phase 2 — IMPLEMENTED CANDIDATE (Egg Lifecycle)
+3. Phase 2 — ACCEPTED / MERGED
+4. Phase 3 — IMPLEMENTED CANDIDATE (Living Pet Care & Sleep)
 4. Phase 3 — Living Pet
 5. Phase 4 — Survival & Death
 6. Phase 5 — Memory & Relationship

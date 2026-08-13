@@ -4,7 +4,7 @@ extends RefCounted
 const DomainEventScript = preload("res://domain/simulation/domain_event.gd")
 
 # Pure domain kernel: callers provide all timestamps; no wall-clock or node access.
-static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int, balance: Dictionary, lifecycle: Dictionary = {}) -> Dictionary:
+static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int, balance: Dictionary, lifecycle: Dictionary = {}, care: Dictionary = {}) -> Dictionary:
 	var next: Dictionary = profile.duplicate(true)
 	var elapsed: int = max(0, to_timestamp - from_timestamp)
 	var simulation: Dictionary = next.get("simulation", {}).duplicate(true)
@@ -29,9 +29,12 @@ static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int
 		subject = String(pet.get("identity", {}).get("pet_id", subject))
 		if String(pet.get("life", {}).get("life_state", "")) == "ALIVE":
 			var vitals: Dictionary = pet.get("vitals", {}).duplicate(true)
-			for key in ["hunger", "hydration", "energy", "hygiene"]:
+			var sleeping := String(pet.get("activity", {}).get("state", "AWAKE")) == "SLEEPING"
+			for key in ["hunger", "hydration", "hygiene"]:
 				var duration := float(balance.get("%s_full_decay_seconds" % key, 0))
 				if duration > 0.0: vitals[key] = clampf(float(vitals.get(key, 100.0)) - 100.0 * float(elapsed) / duration, 0.0, 100.0)
+			var energy_duration := float(care.get("sleep_energy_full_recovery_seconds", 28800)) if sleeping else float(balance.get("energy_full_decay_seconds", 0))
+			if energy_duration > 0.0: vitals["energy"] = clampf(float(vitals.get("energy", 100.0)) + (100.0 if sleeping else -100.0) * float(elapsed) / energy_duration, 0.0, 100.0)
 			pet["vitals"] = vitals
 		next["active_pet"] = pet
 	var sim_version := int(simulation.get("simulation_version", 2))

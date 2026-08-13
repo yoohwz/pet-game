@@ -31,7 +31,7 @@ func fixture(at := 1000, id := "pet:test") -> Dictionary:
 func _run() -> void:
 	_reset()
 	var none := DomainStateScript.new_profile("profile:none", 1000)
-	eq(none.schema_version, 3, "new profile uses schema v3")
+	eq(none.schema_version, 4, "new profile uses schema v4")
 	ok(DomainStateScript.validate_profile(none), "normal v2 profile valid")
 	eq(SimulationKernelScript.simulate(none, 1000, 4600, BALANCE).new_state.active_pet, null, "no pet remains absent")
 	var p := fixture()
@@ -238,6 +238,26 @@ func _run() -> void:
 	ok(screen.rendered_lifecycle_signature.begins_with("PET:") and not screen.has_lifecycle_button("Continue Hatching"), "pet transition removes egg controls")
 	screen.free(); ui_session.free()
 	for value in [session, cadence_a, cadence_b, resume, debug_session, startup]: value.free()
+	# Phase 3 care, sleep, validation and migration.
+	var pet_v3 := fixture(); pet_v3.schema_version = 3; pet_v3.erase("active_egg"); pet_v3.erase("initial_egg_issued"); pet_v3.simulation.simulation_version = 3; pet_v3.active_pet.erase("activity")
+	var pet_v4 := SaveMigratorScript.migrate(pet_v3)
+	ok(DomainStateScript.validate_profile(pet_v4) and pet_v4.active_pet.activity.state == "AWAKE", "v3 pet migrates awake")
+	var invalid_pet: Dictionary = pet_v4.active_pet.duplicate(true); invalid_pet.activity = {"state":"SLEEPING","sleep_started_at":null}; ok(not DomainStateScript.validate_pet(invalid_pet), "sleeping needs timestamp")
+	invalid_pet = pet_v4.active_pet.duplicate(true); invalid_pet.vitals.hunger = 101; ok(not DomainStateScript.validate_pet(invalid_pet), "vitals clamp validation")
+	var care_session = PetGameSessionScript.new(); care_session.balance = BALANCE; care_session.lifecycle = {"initial_incubation_seconds":14400,"newborn_protection_seconds":43200}; care_session.care = {"feed_hunger_restore":35,"drink_hydration_restore":45,"wash_hygiene_restore":50,"touch_mood_restore":5,"play_mood_restore":20,"play_energy_cost":10,"play_min_energy":10,"sleep_energy_full_recovery_seconds":28800}; care_session.profile = fixture(); care_session.reanchor(10.0)
+	care_session.profile.active_pet.vitals = {"hunger":40.0,"hydration":30.0,"energy":50.0,"hygiene":60.0,"mood":70.0,"health":100.0}
+	ok(care_session.care_action("feed", 10.0).ok and care_session.profile.active_pet.vitals.hunger == 75.0, "feed restores hunger")
+	ok(care_session.care_action("drink", 10.0).ok and care_session.profile.active_pet.vitals.hydration == 75.0, "drink restores hydration")
+	ok(care_session.care_action("wash", 10.0).ok and care_session.profile.active_pet.vitals.hygiene == 100.0, "wash clamps hygiene")
+	ok(care_session.care_action("touch", 10.0).ok and care_session.profile.active_pet.vitals.mood == 75.0, "touch restores mood")
+	ok(care_session.care_action("play", 10.0).ok and care_session.profile.active_pet.vitals.energy == 40.0 and care_session.profile.active_pet.vitals.mood == 95.0, "play changes mood and energy")
+	ok(care_session.care_action("sleep", 10.0).ok and care_session.profile.active_pet.activity.state == "SLEEPING", "sleep persists state")
+	eq(care_session.care_action("feed", 10.0).reason, "PET_SLEEPING", "sleep blocks care")
+	var sleep_result: Dictionary = SimulationKernelScript.simulate(care_session.profile, 1000, 1000 + 28800, BALANCE, care_session.lifecycle, care_session.care).new_state
+	eq(sleep_result.active_pet.vitals.energy, 100.0, "sleep restores energy")
+	eq(sleep_result.active_pet.vitals.health, 100.0, "sleep has no health consequence")
+	ok(care_session.care_action("wake", 10.0).ok and care_session.profile.active_pet.activity.state == "AWAKE", "wake persists")
+	care_session.free()
 
 func _write(path: String, content: String) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE); file.store_string(content); file.close()

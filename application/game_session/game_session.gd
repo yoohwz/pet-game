@@ -7,6 +7,7 @@ const SimulationKernelScript = preload("res://domain/simulation/simulation_kerne
 const LocalSaveRepositoryScript = preload("res://infrastructure/persistence/local_save_repository.gd")
 const DefaultBalanceScript = preload("res://application/game_session/default_balance.gd")
 const DefaultLifecycleScript = preload("res://application/lifecycle/default_lifecycle.gd")
+const DefaultCareBalanceScript = preload("res://application/interaction/default_care_balance.gd")
 
 var clock := ClockProviderScript.new()
 var profile: Dictionary = {}
@@ -16,12 +17,14 @@ var session_anchor_monotonic := 0.0
 var last_autosave_monotonic := 0.0
 var balance: Dictionary = {}
 var lifecycle: Dictionary = {}
+var care: Dictionary = {}
 var id_rng := RandomNumberGenerator.new()
 var persistence_write_count := 0 # Narrow observability seam for headless cadence tests.
 
 func _ready() -> void:
 	balance = DefaultBalanceScript.load_balance()
 	lifecycle = DefaultLifecycleScript.load_config()
+	care = DefaultCareBalanceScript.load_config()
 	id_rng.randomize()
 	initialize_session(clock.wall_utc(), clock.monotonic_seconds())
 
@@ -48,7 +51,7 @@ func reconcile_to(current_wall_time: int, persist := true) -> Dictionary:
 
 func advance_in_memory_to(target_time: int) -> Dictionary:
 	var from_time := int(profile.get("simulation", {}).get("last_simulated_at", target_time))
-	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle)
+	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle, care)
 	profile = result.new_state
 	_append_events(result.generated_events)
 	return result
@@ -94,6 +97,33 @@ func reset_debug_pet() -> void:
 	profile["active_subject"] = "NONE"
 	profile["active_pet"] = null
 	persist_profile()
+
+func care_action(action: String, monotonic_now: float) -> Dictionary:
+	advance_active_to(monotonic_now)
+	if String(profile.get("active_subject", "")) != "PET" or String(profile.active_pet.life.get("life_state", "")) != "ALIVE": return {"ok":false,"reason":"NO_PET"}
+	var candidate: Dictionary = profile.duplicate(true)
+	var pet: Dictionary = candidate.active_pet
+	var activity := String(pet.activity.get("state", "AWAKE"))
+	if action != "wake" and activity == "SLEEPING": return {"ok":false,"reason":"PET_SLEEPING"}
+	if action == "wake" and activity != "SLEEPING": return {"ok":false,"reason":"NOT_SLEEPING"}
+	var key := ""; var delta := 0.0; var event_type := ""
+	match action:
+		"feed": key="hunger"; delta=float(care.feed_hunger_restore); event_type="pet_fed"
+		"drink": key="hydration"; delta=float(care.drink_hydration_restore); event_type="pet_drank"
+		"wash": key="hygiene"; delta=float(care.wash_hygiene_restore); event_type="pet_washed"
+		"touch": key="mood"; delta=float(care.touch_mood_restore); event_type="pet_touched"
+		"play":
+			if float(pet.vitals.energy) < float(care.play_min_energy): return {"ok":false,"reason":"LOW_ENERGY"}
+			pet.vitals.mood = clampf(float(pet.vitals.mood) + float(care.play_mood_restore), 0, 100); pet.vitals.energy = clampf(float(pet.vitals.energy) - float(care.play_energy_cost), 0, 100); event_type="pet_played"
+		"sleep": pet.activity = {"state":"SLEEPING","sleep_started_at":int(candidate.simulation.last_simulated_at)}; event_type="pet_sleep_started"
+		"wake": pet.activity = {"state":"AWAKE","sleep_started_at":null}; event_type="pet_woke"
+		_: return {"ok":false,"reason":"UNKNOWN_ACTION"}
+	if not key.is_empty(): pet.vitals[key] = clampf(float(pet.vitals[key]) + delta, 0, 100)
+	candidate.active_pet = pet
+	_append_event_to(candidate, _application_event(event_type, int(candidate.simulation.last_simulated_at), pet.identity.pet_id, {}))
+	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
+	profile = candidate; last_autosave_monotonic = monotonic_now
+	return {"ok":true,"reason":""}
 
 func touch_egg(wall_now: int) -> bool:
 	if String(profile.get("active_subject", "")) != "EGG": return false

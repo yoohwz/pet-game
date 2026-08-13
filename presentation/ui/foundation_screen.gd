@@ -48,7 +48,7 @@ func refresh() -> void:
 func lifecycle_signature(profile: Dictionary) -> String:
 	var subject := String(profile.get("active_subject", "NONE"))
 	if subject == "EGG": return "EGG:%s" % String(profile.get("active_egg", {}).get("state", "INVALID"))
-	if subject == "PET": return "PET:%s" % String(profile.get("active_pet", {}).get("life", {}).get("growth_stage", "UNKNOWN"))
+	if subject == "PET": return "PET:%s:%s" % [String(profile.get("active_pet", {}).get("life", {}).get("growth_stage", "UNKNOWN")), String(profile.get("active_pet", {}).get("activity", {}).get("state", "AWAKE"))]
 	return "NONE"
 
 func refresh_lifecycle_panel() -> void:
@@ -73,8 +73,10 @@ func _rebuild_lifecycle_panel(signature: String) -> void:
 		_add_button("Hatch Egg", func(): _hatch())
 	elif signature == "EGG:HATCHING":
 		_add_button("Continue Hatching", func(): _hatch())
-	elif signature.begins_with("PET:"):
-		pass
+	elif signature.ends_with(":AWAKE"):
+		for item in [["Feed", "feed"], ["Drink", "drink"], ["Play", "play"], ["Wash", "wash"], ["Touch", "touch"], ["Sleep", "sleep"]]: _add_button(item[0], func(): _care(item[1]))
+	elif signature.ends_with(":SLEEPING"):
+		_add_button("Wake", func(): _care("wake"))
 
 func _update_lifecycle_dynamic_text() -> void:
 	var p: Dictionary = _session().profile
@@ -85,6 +87,7 @@ func _update_lifecycle_dynamic_text() -> void:
 		lifecycle_remaining.text = "Remaining: %s" % _remaining(remaining)
 	elif signature == "EGG:READY": lifecycle_status.text = "Egg\nStatus: Ready to hatch"
 	elif signature == "EGG:HATCHING": lifecycle_status.text = "Egg\nStatus: Hatching"
+	elif signature.ends_with(":SLEEPING"): lifecycle_status.text = "Pet is sleeping"
 	elif signature.begins_with("PET:"): lifecycle_status.text = "Newborn Pet"
 	else: lifecycle_status.text = "No active subject"
 
@@ -127,4 +130,8 @@ func _hatch() -> void:
 		refresh()
 		await get_tree().create_timer(0.35).timeout
 	_session().complete_hatching(_session().clock.wall_utc(), _session().clock.monotonic_seconds())
+	refresh()
+
+func _care(action: String) -> void:
+	_session().care_action(action, _session().clock.monotonic_seconds())
 	refresh()

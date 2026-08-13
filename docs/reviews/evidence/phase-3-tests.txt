@@ -1,0 +1,2 @@
+Command: godot --headless --path . -s res://tests/test_runner.gd
+Result: 138 passed, 0 failed
