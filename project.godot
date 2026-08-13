@@ -1,0 +1,21 @@
+; Phase 0 foundation — Godot 4.7.1
+config_version=5
+
+[application]
+config/name="Pet Game Foundation"
+run/main_scene="res://presentation/scenes/main.tscn"
+
+[autoload]
+GameSession="*res://application/game_session/game_session.gd"
+
+[display]
+window/size/viewport_width=360
+window/size/viewport_height=640
+window/size/window_width_override=360
+window/size/window_height_override=640
+window/stretch/mode="canvas_items"
+
+[rendering]
+textures/default_filters/use_nearest_mipmap_filter=false
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
