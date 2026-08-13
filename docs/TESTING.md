@@ -1,3 +1,3 @@
 # Testing
 
-Run `godot --headless --path . -s res://tests/test_runner.gd`. A passing suite exits 0; any assertion failure exits non-zero and prints `FAIL:`. Tests retain Phase 1 coverage and add exhaustive egg/root lifecycle validation, real startup-offline INCUBATING→READY persistence, deterministic ready events, touch, HATCHING recovery/failure safety, and backward-clock birth clamping. No presentation scene is loaded by pure-domain tests.
+Run `godot --headless --path . -s res://tests/test_runner.gd`. A passing suite exits 0; any assertion failure exits non-zero and prints `FAIL:`. Tests retain Phase 1/2 coverage and add direct lifecycle presentation tests: unchanged states preserve button references/rebuild count, while INCUBATING→READY→HATCHING→PET transitions rebuild controls exactly when required. No third-party UI framework is used.

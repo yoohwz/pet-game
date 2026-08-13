@@ -5,6 +5,7 @@ const SimulationKernelScript = preload("res://domain/simulation/simulation_kerne
 const LocalSaveRepositoryScript = preload("res://infrastructure/persistence/local_save_repository.gd")
 const SaveMigratorScript = preload("res://infrastructure/persistence/save_migrator.gd")
 const PetGameSessionScript = preload("res://application/game_session/game_session.gd")
+const FoundationScreenScript = preload("res://presentation/ui/foundation_screen.gd")
 
 const BALANCE := {"balance_version": 1, "hunger_full_decay_seconds": 172800, "hydration_full_decay_seconds": 86400, "energy_full_decay_seconds": 57600, "hygiene_full_decay_seconds": 259200}
 var passed := 0
@@ -206,6 +207,36 @@ func _run() -> void:
 	eq(backward.profile.simulation.clock_anomaly_count, 1, "backward completion increments anomaly")
 	eq(backward.profile.simulation.last_simulated_at, 20000, "birth retains simulation timeline")
 	for value in [egg_session, restart, recovery, offline_start, backward]: value.free()
+	# Phase 2 presentation: controls rebuild only on lifecycle signature transitions.
+	var ui_profile := DomainStateScript.new_profile("profile:ui", 1000)
+	ui_profile.initial_egg_issued = true; ui_profile.active_subject = "EGG"; ui_profile.active_egg = DomainStateScript.new_egg("egg:ui", 1000, 15400)
+	var ui_session = PetGameSessionScript.new()
+	ui_session.balance = BALANCE
+	ui_session.lifecycle = {"lifecycle_version": 1, "initial_incubation_seconds": 14400, "newborn_protection_seconds": 43200}
+	ui_session.profile = ui_profile
+	var screen = FoundationScreenScript.new(); screen.session_override = ui_session; screen._ready()
+	eq(screen.rendered_lifecycle_signature, "EGG:INCUBATING", "UI renders incubating lifecycle signature")
+	ok(screen.has_lifecycle_button("Touch Egg") and not screen.has_lifecycle_button("Hatch Egg"), "incubating UI has touch only")
+	var stable_touch := screen.lifecycle_button("Touch Egg")
+	var initial_rebuilds: int = screen.lifecycle_rebuild_count
+	for i in range(4): screen.refresh_lifecycle_panel()
+	eq(screen.lifecycle_rebuild_count, initial_rebuilds, "stable incubating UI does not rebuild each refresh")
+	eq(screen.lifecycle_button("Touch Egg"), stable_touch, "stable touch button identity survives refreshes")
+	ui_session.profile.active_egg.state = "READY"; screen.refresh_lifecycle_panel()
+	eq(screen.rendered_lifecycle_signature, "EGG:READY", "same-session ready signature changes")
+	ok(screen.has_lifecycle_button("Hatch Egg"), "same-session ready exposes hatch button")
+	var stable_hatch := screen.lifecycle_button("Hatch Egg"); var ready_rebuilds: int = screen.lifecycle_rebuild_count
+	for i in range(3): screen.refresh_lifecycle_panel()
+	eq(screen.lifecycle_rebuild_count, ready_rebuilds, "stable ready UI does not rebuild")
+	eq(screen.lifecycle_button("Hatch Egg"), stable_hatch, "stable hatch button identity survives refreshes")
+	ui_session.profile.active_egg.state = "HATCHING"; ui_session.profile.active_egg.reserved_pet_id = "pet:ui"; ui_session.profile.active_egg.reserved_pet_seed = 1; ui_session.profile.active_egg.hatching_started_at = 15400; screen.refresh_lifecycle_panel()
+	ok(not screen.has_lifecycle_button("Hatch Egg") and screen.has_lifecycle_button("Continue Hatching"), "hatching replaces hatch with continue")
+	var stable_continue := screen.lifecycle_button("Continue Hatching"); var hatching_rebuilds: int = screen.lifecycle_rebuild_count; screen.refresh_lifecycle_panel()
+	eq(screen.lifecycle_rebuild_count, hatching_rebuilds, "stable hatching UI does not rebuild")
+	eq(screen.lifecycle_button("Continue Hatching"), stable_continue, "stable continue identity survives refresh")
+	ui_session.profile.active_subject = "PET"; ui_session.profile.active_egg = null; ui_session.profile.active_pet = DomainStateScript.new_pet("pet:ui", "UI", 16000, 1); screen.refresh_lifecycle_panel()
+	ok(screen.rendered_lifecycle_signature.begins_with("PET:") and not screen.has_lifecycle_button("Continue Hatching"), "pet transition removes egg controls")
+	screen.free(); ui_session.free()
 	for value in [session, cadence_a, cadence_b, resume, debug_session, startup]: value.free()
 
 func _write(path: String, content: String) -> void:
