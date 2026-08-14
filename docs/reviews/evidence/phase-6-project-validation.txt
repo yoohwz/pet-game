@@ -1,0 +1,6 @@
+Commands:
+godot --headless --path . --editor --quit
+godot --headless --path . --quit-after 1
+
+Result:
+Both commands exited successfully (0).

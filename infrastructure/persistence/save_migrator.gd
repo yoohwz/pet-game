@@ -6,7 +6,19 @@ const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 
 static func migrate(data: Dictionary) -> Dictionary:
 	var version := int(data.get("schema_version", 0))
-	if version == 6: return _normalize_v6_integer_memory_fields(data)
+	if version == 7: return _normalize_v7_integer_fields(data)
+	if version == 6:
+		var v7: Dictionary = data.duplicate(true); v7["schema_version"] = 7
+		var s7: Dictionary = v7.get("simulation", {}).duplicate(true); s7["simulation_version"] = 6; s7["growth_balance_version"] = 1; v7["simulation"] = s7
+		if v7.get("active_pet") is Dictionary: v7["active_pet"] = _migrate_pet_v7(v7.active_pet)
+		if v7.get("active_egg") is Dictionary: v7.active_egg["schema_version"] = 7
+		var v7_memorials: Array = []
+		for memorial_value in v7.get("memorials", []):
+			var memorial: Dictionary = memorial_value.duplicate(true)
+			if memorial.get("pet_snapshot") is Dictionary: memorial["pet_snapshot"] = _migrate_pet_v7(memorial.pet_snapshot)
+			v7_memorials.append(memorial)
+		v7["memorials"] = v7_memorials
+		return _normalize_v7_integer_fields(v7)
 	if version == 5:
 		var v6: Dictionary = data.duplicate(true); v6["schema_version"] = 6
 		if v6.get("active_pet") is Dictionary: v6["active_pet"] = _migrate_pet(v6.active_pet)
@@ -17,7 +29,7 @@ static func migrate(data: Dictionary) -> Dictionary:
 			if memorial.get("pet_snapshot") is Dictionary: memorial["pet_snapshot"] = _migrate_pet(memorial.pet_snapshot)
 			memorials.append(memorial)
 		v6["memorials"] = memorials
-		return v6
+		return migrate(v6)
 	if version == 4:
 		var v5: Dictionary = data.duplicate(true); v5["schema_version"] = 5; v5["memorials"] = v5.get("memorials", [])
 		var s5: Dictionary = v5.get("simulation", {}).duplicate(true); s5["simulation_version"] = 5; s5["survival_balance_version"] = 1; v5["simulation"] = s5
@@ -60,11 +72,22 @@ static func _migrate_pet(pet: Dictionary) -> Dictionary:
 	next["memory"] = MemoryModelScript.new_memory()
 	return next
 
+static func _migrate_pet_v7(pet: Dictionary) -> Dictionary:
+	var next: Dictionary = pet.duplicate(true)
+	next["schema_version"] = 7
+	var born_at := int(next.get("identity", {}).get("born_at", 0))
+	var existing_growth: Dictionary = next.get("growth", {})
+	next["growth"] = {"growth_version":1, "growth_balance_version":1, "stage_started_at":int(existing_growth.get("stage_started_at", born_at)) if int(existing_growth.get("stage_started_at", born_at)) >= born_at else born_at}
+	return next
+
 # Godot's JSON parser represents numeric literals as floats. These fields are
 # contractually integers, so canonicalize only exact whole values before domain
 # validation. Fractional external data remains fractional and is rejected.
-static func _normalize_v6_integer_memory_fields(data: Dictionary) -> Dictionary:
+static func _normalize_v7_integer_fields(data: Dictionary) -> Dictionary:
 	var next: Dictionary = data.duplicate(true)
+	var simulation: Dictionary = next.get("simulation", {}).duplicate(true)
+	simulation["growth_balance_version"] = _whole_int_or_original(simulation.get("growth_balance_version"))
+	next["simulation"] = simulation
 	if next.get("active_pet") is Dictionary:
 		next["active_pet"] = _normalize_pet_memory_numbers(next.active_pet)
 	var memorials: Array = []
@@ -78,6 +101,11 @@ static func _normalize_v6_integer_memory_fields(data: Dictionary) -> Dictionary:
 
 static func _normalize_pet_memory_numbers(pet: Dictionary) -> Dictionary:
 	var next: Dictionary = pet.duplicate(true)
+	if next.get("growth") is Dictionary:
+		var growth: Dictionary = next.growth.duplicate(true)
+		for key in ["growth_version", "growth_balance_version", "stage_started_at"]:
+			growth[key] = _whole_int_or_original(growth.get(key))
+		next["growth"] = growth
 	if next.get("relationship") is Dictionary:
 		var relationship: Dictionary = next.relationship.duplicate(true)
 		for key in ["relationship_version", "relationship_balance_version"]:

@@ -11,6 +11,7 @@ const DefaultCareBalanceScript = preload("res://application/interaction/default_
 const DefaultSurvivalBalanceScript = preload("res://application/game_session/default_survival_balance.gd")
 const DefaultRelationshipBalanceScript = preload("res://application/relationship/default_relationship_balance.gd")
 const DefaultMemoryConfigScript = preload("res://application/memory/default_memory_config.gd")
+const DefaultGrowthBalanceScript = preload("res://application/growth/default_growth_balance.gd")
 const RelationshipModelScript = preload("res://domain/relationship/relationship_model.gd")
 const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 
@@ -26,6 +27,7 @@ var care: Dictionary = {}
 var survival: Dictionary = {}
 var relationship_balance: Dictionary = {}
 var memory_config: Dictionary = {}
+var growth: Dictionary = {}
 var id_rng := RandomNumberGenerator.new()
 var persistence_write_count := 0 # Narrow observability seam for headless cadence tests.
 
@@ -36,6 +38,7 @@ func _ready() -> void:
 	survival = DefaultSurvivalBalanceScript.load_config()
 	relationship_balance = DefaultRelationshipBalanceScript.load_config()
 	memory_config = DefaultMemoryConfigScript.load_config()
+	growth = DefaultGrowthBalanceScript.load_config()
 	id_rng.randomize()
 	initialize_session(clock.wall_utc(), clock.monotonic_seconds())
 
@@ -62,7 +65,7 @@ func reconcile_to(current_wall_time: int, persist := true) -> Dictionary:
 
 func advance_in_memory_to(target_time: int) -> Dictionary:
 	var from_time := int(profile.get("simulation", {}).get("last_simulated_at", target_time))
-	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle, care, survival)
+	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle, care, survival, growth)
 	profile = result.new_state
 	_append_events(result.generated_events)
 	return result

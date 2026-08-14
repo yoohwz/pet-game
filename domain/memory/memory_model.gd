@@ -3,7 +3,7 @@ extends RefCounted
 
 const ROUTINE_ACTIONS := ["feed", "drink", "play", "wash", "touch", "sleep", "wake"]
 const CARE_ACTIONS := ["feed", "drink", "play", "wash", "touch"]
-const MAPPING := {"pet_hatched":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_fed":{"category":"CARE","importance":1}, "pet_drank":{"category":"CARE","importance":1}, "pet_washed":{"category":"CARE","importance":1}, "pet_touched":{"category":"CARE","importance":1,"valence":1}, "pet_played":{"category":"CARE","importance":1,"valence":1}, "pet_sleep_started":{"category":"ROUTINE","importance":0,"valence":0}, "pet_woke":{"category":"ROUTINE","importance":0,"valence":0}, "pet_became_critical":{"category":"SURVIVAL","importance":3,"valence":-1}, "pet_stabilized":{"category":"SURVIVAL","importance":3,"valence":1}, "pet_died":{"category":"SURVIVAL","importance":4,"valence":-1}}
+const MAPPING := {"pet_hatched":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_grew":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_fed":{"category":"CARE","importance":1}, "pet_drank":{"category":"CARE","importance":1}, "pet_washed":{"category":"CARE","importance":1}, "pet_touched":{"category":"CARE","importance":1,"valence":1}, "pet_played":{"category":"CARE","importance":1,"valence":1}, "pet_sleep_started":{"category":"ROUTINE","importance":0,"valence":0}, "pet_woke":{"category":"ROUTINE","importance":0,"valence":0}, "pet_became_critical":{"category":"SURVIVAL","importance":3,"valence":-1}, "pet_stabilized":{"category":"SURVIVAL","importance":3,"valence":1}, "pet_died":{"category":"SURVIVAL","importance":4,"valence":-1}}
 
 static func new_memory() -> Dictionary:
 	var routine := {}

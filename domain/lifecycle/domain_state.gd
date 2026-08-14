@@ -1,7 +1,7 @@
 class_name DomainState
 extends RefCounted
 
-const SCHEMA_VERSION := 6
+const SCHEMA_VERSION := 7
 const RelationshipModelScript = preload("res://domain/relationship/relationship_model.gd")
 const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 const ACTIVE_NONE := "NONE"
@@ -12,17 +12,19 @@ const LIFE_DEAD := "DEAD"
 const GROWTH_NEWBORN := "NEWBORN"
 
 static func new_profile(profile_id: String, created_at: int) -> Dictionary:
-	return {"schema_version": SCHEMA_VERSION, "profile_id": profile_id, "created_at": created_at, "initial_egg_issued": false, "active_subject": ACTIVE_NONE, "active_egg": null, "active_pet": null, "memorial_count": 0, "memorials": [], "simulation": {"last_simulated_at": created_at, "clock_anomaly_count": 0, "simulation_version": 5, "balance_version": 1, "care_balance_version": 1, "survival_balance_version": 1}, "recent_events": []}
+	return {"schema_version": SCHEMA_VERSION, "profile_id": profile_id, "created_at": created_at, "initial_egg_issued": false, "active_subject": ACTIVE_NONE, "active_egg": null, "active_pet": null, "memorial_count": 0, "memorials": [], "simulation": {"last_simulated_at": created_at, "clock_anomaly_count": 0, "simulation_version": 6, "balance_version": 1, "care_balance_version": 1, "survival_balance_version": 1, "growth_balance_version": 1}, "recent_events": []}
 
 static func new_egg(egg_id: String, received_at: int, hatch_ready_at: int, shell_variant: String = "plain") -> Dictionary:
 	return {"schema_version": SCHEMA_VERSION, "egg_id": egg_id, "received_at": received_at, "hatch_ready_at": hatch_ready_at, "state": "INCUBATING", "shell_variant": shell_variant, "interaction_summary": {"touch_count": 0, "last_interacted_at": null}, "hatching_started_at": null, "reserved_pet_id": null, "reserved_pet_seed": null}
 
 static func new_pet(pet_id: String, name: String, born_at: int, seed: int) -> Dictionary:
-	return {"schema_version": SCHEMA_VERSION, "identity": {"pet_id": pet_id, "name": name, "born_at": born_at, "seed": seed}, "life": {"life_state": LIFE_ALIVE, "growth_stage": GROWTH_NEWBORN, "newborn_protection_until": born_at, "died_at": null, "death_cause": ""}, "activity": {"state": "AWAKE", "sleep_started_at": null}, "survival": {"condition": "STABLE", "critical_started_at": null}, "vitals": {"hunger": 100.0, "hydration": 100.0, "energy": 100.0, "hygiene": 100.0, "mood": 100.0, "health": 100.0}, "relationship": RelationshipModelScript.new_relationship(), "memory": MemoryModelScript.new_memory(), "personality": {"playfulness": 0.5, "curiosity": 0.5, "independence": 0.5, "attachment": 0.5, "food_motivation": 0.5, "touch_tolerance": 0.5, "activity_level": 0.5}}
+	return {"schema_version": SCHEMA_VERSION, "identity": {"pet_id": pet_id, "name": name, "born_at": born_at, "seed": seed}, "life": {"life_state": LIFE_ALIVE, "growth_stage": GROWTH_NEWBORN, "newborn_protection_until": born_at, "died_at": null, "death_cause": ""}, "growth": {"growth_version":1, "growth_balance_version":1, "stage_started_at":born_at}, "activity": {"state": "AWAKE", "sleep_started_at": null}, "survival": {"condition": "STABLE", "critical_started_at": null}, "vitals": {"hunger": 100.0, "hydration": 100.0, "energy": 100.0, "hygiene": 100.0, "mood": 100.0, "health": 100.0}, "relationship": RelationshipModelScript.new_relationship(), "memory": MemoryModelScript.new_memory(), "personality": {"playfulness": 0.5, "curiosity": 0.5, "independence": 0.5, "attachment": 0.5, "food_motivation": 0.5, "touch_tolerance": 0.5, "activity_level": 0.5}}
 
 static func validate_profile(profile: Dictionary) -> bool:
 	if int(profile.get("schema_version", 0)) != SCHEMA_VERSION: return false
 	if String(profile.get("profile_id", "")).is_empty(): return false
+	var simulation: Dictionary = profile.get("simulation", {})
+	if not (simulation.get("growth_balance_version") is int) or int(simulation.get("growth_balance_version", 0)) < 1: return false
 	if not (profile.get("memorials", []) is Array) or int(profile.get("memorial_count", -1)) < profile.get("memorials", []).size(): return false
 	for memorial in profile.get("memorials", []):
 		if not validate_memorial(memorial): return false
@@ -54,6 +56,8 @@ static func validate_pet(pet: Dictionary) -> bool:
 	if String(identity.get("pet_id", "")).is_empty() or not identity.has("born_at"): return false
 	if String(life.get("life_state", "")) not in [LIFE_ALIVE, LIFE_DEAD]: return false
 	if String(life.get("growth_stage", "")) not in ["NEWBORN", "CHILD", "ADOLESCENT", "ADULT"]: return false
+	var growth: Dictionary = pet.get("growth", {})
+	if not (growth.get("growth_version") is int) or int(growth.get("growth_version", 0)) != 1 or not (growth.get("growth_balance_version") is int) or int(growth.get("growth_balance_version", 0)) < 1 or not (growth.get("stage_started_at") is int) or int(growth.get("stage_started_at", -1)) < int(identity.get("born_at", 0)): return false
 	if life.get("life_state") == LIFE_ALIVE and life.get("died_at") != null: return false
 	var activity: Dictionary = pet.get("activity", {})
 	if String(activity.get("state", "")) not in ["AWAKE", "SLEEPING"]: return false

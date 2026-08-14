@@ -2,9 +2,10 @@ class_name SimulationKernel
 extends RefCounted
 
 const DomainEventScript = preload("res://domain/simulation/domain_event.gd")
+const GrowthModelScript = preload("res://domain/growth/growth_model.gd")
 
 # Pure domain kernel: callers provide all timestamps; no wall-clock or node access.
-static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int, balance: Dictionary, lifecycle: Dictionary = {}, care: Dictionary = {}, survival: Dictionary = {}) -> Dictionary:
+static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int, balance: Dictionary, lifecycle: Dictionary = {}, care: Dictionary = {}, survival: Dictionary = {}, growth: Dictionary = {}) -> Dictionary:
 	var next: Dictionary = profile.duplicate(true)
 	var elapsed: int = max(0, to_timestamp - from_timestamp)
 	var simulation: Dictionary = next.get("simulation", {}).duplicate(true)
@@ -30,6 +31,9 @@ static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int
 		if String(pet.get("life", {}).get("life_state", "")) == "ALIVE":
 			var survival_result := _simulate_pet_survival(pet, from_timestamp, to_timestamp, balance, care, survival, subject)
 			pet = survival_result.pet
+			var growth_result := GrowthModelScript.transitions_to(pet, int(survival_result.biological_to), growth, int(simulation.get("simulation_version", 6)))
+			pet = growth_result.pet
+			generated_events.append_array(growth_result.events)
 			generated_events.append_array(survival_result.events)
 		next["active_pet"] = pet
 	var sim_version := int(simulation.get("simulation_version", 2))
@@ -37,7 +41,12 @@ static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int
 	# Identity reflects the care configuration that actually produced this result.
 	var care_version := int(care.get("care_balance_version", simulation.get("care_balance_version", 1)))
 	var survival_version := int(survival.get("survival_balance_version", simulation.get("survival_balance_version", 1)))
-	var event := DomainEventScript.make("sim:v%d:b%d:c%d:s%d:%s:%d:%d" % [sim_version, balance_version, care_version, survival_version, subject, from_timestamp, to_timestamp], "simulation_advanced", to_timestamp if elapsed > 0 else from_timestamp, subject, {"elapsed_seconds": elapsed})
+	var growth_version := int(growth.get("growth_balance_version", simulation.get("growth_balance_version", 1)))
+	generated_events.sort_custom(func(a, b):
+		if int(a.occurred_at) != int(b.occurred_at): return int(a.occurred_at) < int(b.occurred_at)
+		return _biological_event_order(String(a.event_type)) < _biological_event_order(String(b.event_type))
+	)
+	var event := DomainEventScript.make("sim:v%d:b%d:c%d:s%d:g%d:%s:%d:%d" % [sim_version, balance_version, care_version, survival_version, growth_version, subject, from_timestamp, to_timestamp], "simulation_advanced", to_timestamp if elapsed > 0 else from_timestamp, subject, {"elapsed_seconds": elapsed})
 	generated_events.append(event)
 	return {"new_state": next, "generated_events": generated_events, "elapsed_seconds": elapsed}
 
@@ -45,7 +54,7 @@ static func simulate(profile: Dictionary, from_timestamp: int, to_timestamp: int
 # derived from the same linear need curves, so splitting an interval cannot change them.
 static func _simulate_pet_survival(pet: Dictionary, from_time: int, to_time: int, balance: Dictionary, care: Dictionary, survival: Dictionary, subject: String) -> Dictionary:
 	var events: Array = []
-	if to_time <= from_time: return {"pet": pet, "events": events}
+	if to_time <= from_time: return {"pet": pet, "events": events, "biological_to": to_time}
 	var starting_vitals: Dictionary = pet.get("vitals", {}).duplicate(true)
 	var life: Dictionary = pet.get("life", {}).duplicate(true)
 	var survival_state: Dictionary = pet.get("survival", {}).duplicate(true)
@@ -86,7 +95,10 @@ static func _simulate_pet_survival(pet: Dictionary, from_time: int, to_time: int
 	pet["vitals"] = vitals
 	pet["life"] = life
 	pet["survival"] = survival_state
-	return {"pet": pet, "events": events}
+	return {"pet": pet, "events": events, "biological_to": biological_to}
+
+static func _biological_event_order(event_type: String) -> int:
+	return {"pet_grew":0, "pet_became_critical":1, "pet_died":2}.get(event_type, 3)
 
 static func _advance_vitals(start: Dictionary, elapsed: int, balance: Dictionary, care: Dictionary, sleeping: bool) -> Dictionary:
 	var vitals: Dictionary = start.duplicate(true)
