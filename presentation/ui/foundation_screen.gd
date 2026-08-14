@@ -9,6 +9,7 @@ var lifecycle_remaining: Label
 var rendered_lifecycle_signature := ""
 var lifecycle_rebuild_count := 0
 var session_override: PetGameSession
+var reaction_label: Label
 
 func _session():
 	return session_override if session_override != null else get_node_or_null("/root/GameSession")
@@ -24,6 +25,9 @@ func _ready() -> void:
 	panel.add_child(title)
 	lifecycle_panel = VBoxContainer.new()
 	panel.add_child(lifecycle_panel)
+	reaction_label = Label.new()
+	reaction_label.text = ""
+	panel.add_child(reaction_label)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(buttons)
@@ -48,7 +52,7 @@ func refresh() -> void:
 func lifecycle_signature(profile: Dictionary) -> String:
 	var subject := String(profile.get("active_subject", "NONE"))
 	if subject == "EGG": return "EGG:%s" % String(profile.get("active_egg", {}).get("state", "INVALID"))
-	if subject == "PET": return "PET:%s" % String(profile.get("active_pet", {}).get("life", {}).get("growth_stage", "UNKNOWN"))
+	if subject == "PET": return "PET:%s:%s" % [String(profile.get("active_pet", {}).get("life", {}).get("growth_stage", "UNKNOWN")), String(profile.get("active_pet", {}).get("activity", {}).get("state", "AWAKE"))]
 	return "NONE"
 
 func refresh_lifecycle_panel() -> void:
@@ -73,8 +77,10 @@ func _rebuild_lifecycle_panel(signature: String) -> void:
 		_add_button("Hatch Egg", func(): _hatch())
 	elif signature == "EGG:HATCHING":
 		_add_button("Continue Hatching", func(): _hatch())
-	elif signature.begins_with("PET:"):
-		pass
+	elif signature.ends_with(":AWAKE"):
+		for item in [["Feed", "feed"], ["Drink", "drink"], ["Play", "play"], ["Wash", "wash"], ["Touch", "touch"], ["Sleep", "sleep"]]: _add_button(item[0], func(): _care(item[1]))
+	elif signature.ends_with(":SLEEPING"):
+		_add_button("Wake", func(): _care("wake"))
 
 func _update_lifecycle_dynamic_text() -> void:
 	var p: Dictionary = _session().profile
@@ -85,6 +91,7 @@ func _update_lifecycle_dynamic_text() -> void:
 		lifecycle_remaining.text = "Remaining: %s" % _remaining(remaining)
 	elif signature == "EGG:READY": lifecycle_status.text = "Egg\nStatus: Ready to hatch"
 	elif signature == "EGG:HATCHING": lifecycle_status.text = "Egg\nStatus: Hatching"
+	elif signature.ends_with(":SLEEPING"): lifecycle_status.text = "Pet is sleeping"
 	elif signature.begins_with("PET:"): lifecycle_status.text = "Newborn Pet"
 	else: lifecycle_status.text = "No active subject"
 
@@ -127,4 +134,12 @@ func _hatch() -> void:
 		refresh()
 		await get_tree().create_timer(0.35).timeout
 	_session().complete_hatching(_session().clock.wall_utc(), _session().clock.monotonic_seconds())
+	refresh()
+
+func _care(action: String) -> void:
+	var result: Dictionary = _session().care_action(action, _session().clock.monotonic_seconds())
+	if result.ok:
+		reaction_label.text = {"feed":"Pet ate happily.", "drink":"Pet drank.", "play":"Pet had fun.", "wash":"Pet is clean.", "touch":"Pet enjoyed the touch.", "sleep":"Pet fell asleep.", "wake":"Pet woke up."}.get(action, "Pet responded.")
+	else:
+		reaction_label.text = {"LOW_ENERGY":"Pet is too tired to play.", "PET_SLEEPING":"Pet is sleeping.", "NOT_SLEEPING":"Pet is already awake.", "NO_PET":"No pet is available.", "PERSIST_FAILED":"Action could not be saved.", "UNKNOWN_ACTION":"That action is unavailable."}.get(String(result.reason), "Action unavailable.")
 	refresh()

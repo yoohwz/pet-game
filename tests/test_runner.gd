@@ -31,7 +31,7 @@ func fixture(at := 1000, id := "pet:test") -> Dictionary:
 func _run() -> void:
 	_reset()
 	var none := DomainStateScript.new_profile("profile:none", 1000)
-	eq(none.schema_version, 3, "new profile uses schema v3")
+	eq(none.schema_version, 4, "new profile uses schema v4")
 	ok(DomainStateScript.validate_profile(none), "normal v2 profile valid")
 	eq(SimulationKernelScript.simulate(none, 1000, 4600, BALANCE).new_state.active_pet, null, "no pet remains absent")
 	var p := fixture()
@@ -238,9 +238,136 @@ func _run() -> void:
 	ok(screen.rendered_lifecycle_signature.begins_with("PET:") and not screen.has_lifecycle_button("Continue Hatching"), "pet transition removes egg controls")
 	screen.free(); ui_session.free()
 	for value in [session, cadence_a, cadence_b, resume, debug_session, startup]: value.free()
+	# Phase 3 care, sleep, validation and migration.
+	var pet_v3 := fixture(); pet_v3.schema_version = 3; pet_v3.erase("active_egg"); pet_v3.erase("initial_egg_issued"); pet_v3.simulation.simulation_version = 3; pet_v3.active_pet.erase("activity")
+	var pet_v4 := SaveMigratorScript.migrate(pet_v3)
+	ok(DomainStateScript.validate_profile(pet_v4) and pet_v4.active_pet.activity.state == "AWAKE", "v3 pet migrates awake")
+	var invalid_pet: Dictionary = pet_v4.active_pet.duplicate(true); invalid_pet.activity = {"state":"SLEEPING","sleep_started_at":null}; ok(not DomainStateScript.validate_pet(invalid_pet), "sleeping needs timestamp")
+	invalid_pet = pet_v4.active_pet.duplicate(true); invalid_pet.vitals.hunger = 101; ok(not DomainStateScript.validate_pet(invalid_pet), "vitals clamp validation")
+	var care_session = PetGameSessionScript.new(); care_session.balance = BALANCE; care_session.lifecycle = {"initial_incubation_seconds":14400,"newborn_protection_seconds":43200}; care_session.care = {"feed_hunger_restore":35,"drink_hydration_restore":45,"wash_hygiene_restore":50,"touch_mood_restore":5,"play_mood_restore":20,"play_energy_cost":10,"play_min_energy":10,"sleep_energy_full_recovery_seconds":28800}; care_session.profile = fixture(); care_session.reanchor(10.0)
+	care_session.profile.active_pet.vitals = {"hunger":40.0,"hydration":30.0,"energy":50.0,"hygiene":60.0,"mood":70.0,"health":100.0}
+	ok(care_session.care_action("feed", 10.0).ok and care_session.profile.active_pet.vitals.hunger == 75.0, "feed restores hunger")
+	ok(care_session.care_action("drink", 10.0).ok and care_session.profile.active_pet.vitals.hydration == 75.0, "drink restores hydration")
+	ok(care_session.care_action("wash", 10.0).ok and care_session.profile.active_pet.vitals.hygiene == 100.0, "wash clamps hygiene")
+	ok(care_session.care_action("touch", 10.0).ok and care_session.profile.active_pet.vitals.mood == 75.0, "touch restores mood")
+	ok(care_session.care_action("play", 10.0).ok and care_session.profile.active_pet.vitals.energy == 40.0 and care_session.profile.active_pet.vitals.mood == 95.0, "play changes mood and energy")
+	ok(care_session.care_action("sleep", 10.0).ok and care_session.profile.active_pet.activity.state == "SLEEPING", "sleep persists state")
+	eq(care_session.care_action("feed", 10.0).reason, "PET_SLEEPING", "sleep blocks care")
+	var sleep_result: Dictionary = SimulationKernelScript.simulate(care_session.profile, 1000, 1000 + 28800, BALANCE, care_session.lifecycle, care_session.care).new_state
+	eq(sleep_result.active_pet.vitals.energy, 100.0, "sleep restores energy")
+	eq(sleep_result.active_pet.vitals.health, 100.0, "sleep has no health consequence")
+	ok(care_session.care_action("wake", 10.0).ok and care_session.profile.active_pet.activity.state == "AWAKE", "wake persists")
+	# Phase 3 acceptance gaps: event semantics, failures, offline sleep and timeline ordering.
+	var care_v2: Dictionary = care_session.care.duplicate(true); care_v2.care_balance_version = 2
+	var event_one: Dictionary = SimulationKernelScript.simulate(fixture(), 1000, 4600, BALANCE, care_session.lifecycle, care_session.care).generated_events[-1]
+	var event_two: Dictionary = SimulationKernelScript.simulate(fixture(), 1000, 4600, BALANCE, care_session.lifecycle, care_session.care).generated_events[-1]
+	var care_v2_profile := fixture(); care_v2_profile.simulation.care_balance_version = 2
+	var event_changed: Dictionary = SimulationKernelScript.simulate(care_v2_profile, 1000, 4600, BALANCE, care_session.lifecycle, care_v2).generated_events[-1]
+	eq(event_one.event_id, event_two.event_id, "same care version simulation event deterministic")
+	ok(event_one.event_id != event_changed.event_id, "care balance version changes event identity")
+	# Final evidence: persisted c1 with supplied c2 must use c2 math and identity.
+	var mismatch_profile := fixture(); mismatch_profile.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; mismatch_profile.active_pet.vitals.energy = 0.0; mismatch_profile.simulation.care_balance_version = 1
+	var mismatch_v1: Dictionary = care_session.care.duplicate(true); mismatch_v1.care_balance_version = 1; mismatch_v1.sleep_energy_full_recovery_seconds = 28800
+	var mismatch_v2: Dictionary = care_session.care.duplicate(true); mismatch_v2.care_balance_version = 2; mismatch_v2.sleep_energy_full_recovery_seconds = 14400
+	var mismatch_result_v1 := SimulationKernelScript.simulate(mismatch_profile, 1000, 8200, BALANCE, care_session.lifecycle, mismatch_v1)
+	var mismatch_result_v2 := SimulationKernelScript.simulate(mismatch_profile, 1000, 8200, BALANCE, care_session.lifecycle, mismatch_v2)
+	approx(mismatch_result_v2.new_state.active_pet.vitals.energy, 50.0, "mismatch runtime uses supplied care v2 math")
+	ok(mismatch_result_v2.generated_events[-1].event_id.contains(":c2:"), "mismatch event identity encodes supplied care v2")
+	ok(mismatch_result_v1.generated_events[-1].event_id != mismatch_result_v2.generated_events[-1].event_id, "mismatch c1 and c2 identities differ")
+	eq(mismatch_result_v2.new_state.simulation.care_balance_version, 1, "pure simulation preserves persisted care version")
+	var fail_care = PetGameSessionScript.new(); fail_care.balance = BALANCE; fail_care.lifecycle = care_session.lifecycle; fail_care.care = care_session.care; fail_care.profile = fixture(); fail_care.profile.active_pet.vitals.hunger = 40.0; fail_care.reanchor(10.0)
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	eq(fail_care.care_action("feed", 10.0).reason, "PERSIST_FAILED", "care save failure reported")
+	eq(fail_care.profile.active_pet.vitals.hunger, 40.0, "failed feed does not commit care effect")
+	eq(fail_care.profile.recent_events.size(), 0, "failed feed adds no authoritative event")
+	ok(not _has_event(fail_care.profile.recent_events, "pet_fed"), "failed feed has no pet_fed event")
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	eq(fail_care.care_action("sleep", 10.0).reason, "PERSIST_FAILED", "sleep save failure reported")
+	eq(fail_care.profile.active_pet.activity.state, "AWAKE", "failed sleep stays awake")
+	eq(fail_care.profile.active_pet.activity.sleep_started_at, null, "failed sleep has no start timestamp")
+	eq(fail_care.profile.recent_events.size(), 0, "failed sleep adds no authoritative event")
+	ok(not _has_event(fail_care.profile.recent_events, "pet_sleep_started"), "failed sleep has no event")
+	fail_care.profile.active_pet.vitals.energy = 5.0; var before_mood: float = fail_care.profile.active_pet.vitals.mood; var before_energy: float = fail_care.profile.active_pet.vitals.energy; var before_events: int = fail_care.profile.recent_events.size()
+	eq(fail_care.care_action("play", 10.0).reason, "LOW_ENERGY", "low energy play rejected")
+	eq(fail_care.profile.active_pet.vitals.energy, before_energy, "low energy play preserves energy")
+	eq(fail_care.profile.active_pet.vitals.mood, before_mood, "low energy play preserves mood")
+	eq(fail_care.profile.recent_events.size(), before_events, "low energy play emits no event")
+	# Offline sleeping startup reconciliation.
+	_reset(); var offline_sleep := fixture(); offline_sleep.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; offline_sleep.active_pet.vitals.energy = 25.0; ok(LocalSaveRepositoryScript.save_profile(offline_sleep), "persist sleeping fixture")
+	var sleep_startup = PetGameSessionScript.new(); sleep_startup.balance = BALANCE; sleep_startup.lifecycle = care_session.lifecycle; sleep_startup.care = care_session.care; sleep_startup.initialize_session(1000 + 14400, 20.0)
+	approx(sleep_startup.profile.active_pet.vitals.energy, 75.0, "offline sleep recovers energy")
+	eq(sleep_startup.profile.active_pet.activity.state, "SLEEPING", "offline sleep remains sleeping")
+	approx(sleep_startup.profile.active_pet.vitals.hydration, 83.3333333, "offline sleep passive hydration decay")
+	approx(LocalSaveRepositoryScript.load_profile().active_pet.vitals.energy, 75.0, "offline sleep reconciliation persists")
+	# Interaction timeline sync precedes care application and event uses simulated timestamp.
+	var timeline = PetGameSessionScript.new(); timeline.balance = BALANCE; timeline.lifecycle = care_session.lifecycle; timeline.care = care_session.care; timeline.profile = fixture(); timeline.profile.active_pet.vitals.hunger = 50.0; timeline.reanchor(10.0)
+	ok(timeline.care_action("feed", 3610.0).ok, "timeline feed succeeds")
+	approx(timeline.profile.active_pet.vitals.hunger, 82.9166667, "timeline decays before feed")
+	eq(timeline.profile.recent_events[-1].occurred_at, 4600, "care event timestamp uses simulated time")
+	eq(timeline.profile.recent_events[-1].subject_id, "pet:test", "care event subject is pet id")
+	# Corrective pass 2: all v3 lifecycle migrations and care acceptance evidence.
+	var v3_egg := DomainStateScript.new_profile("v3:egg", 1000); v3_egg.schema_version = 3; v3_egg.simulation.simulation_version = 3; v3_egg.erase("initial_egg_issued"); v3_egg.erase("active_egg"); v3_egg.active_subject = "EGG"; v3_egg["active_egg"] = DomainStateScript.new_egg("egg:migrate", 1000, 15400); v3_egg.active_egg.schema_version = 3
+	var migrated_inc := SaveMigratorScript.migrate(v3_egg)
+	eq(migrated_inc.schema_version, 4, "v3 incubating migrates v4")
+	eq(migrated_inc.active_egg.egg_id, "egg:migrate", "v3 incubating preserves egg id")
+	eq(migrated_inc.active_egg.interaction_summary, v3_egg.active_egg.interaction_summary, "v3 incubating preserves interaction summary")
+	v3_egg.active_egg.state = "READY"; var migrated_ready := SaveMigratorScript.migrate(v3_egg)
+	eq(migrated_ready.active_egg.state, "READY", "v3 ready remains ready")
+	v3_egg.active_egg.state = "HATCHING"; v3_egg.active_egg.reserved_pet_id = "pet:migrated"; v3_egg.active_egg.reserved_pet_seed = 77; v3_egg.active_egg.hatching_started_at = 15400
+	var migrated_hatching := SaveMigratorScript.migrate(v3_egg)
+	eq(migrated_hatching.active_egg.reserved_pet_id, "pet:migrated", "v3 hatching preserves reserved id")
+	eq(migrated_hatching.active_egg.reserved_pet_seed, 77, "v3 hatching preserves seed")
+	var migrated_hatch_session = PetGameSessionScript.new(); migrated_hatch_session.balance = BALANCE; migrated_hatch_session.lifecycle = care_session.lifecycle; migrated_hatch_session.care = care_session.care; migrated_hatch_session.profile = migrated_hatching
+	ok(migrated_hatch_session.complete_hatching(16000, 10.0), "migrated hatching completes")
+	eq(migrated_hatch_session.profile.active_pet.identity.pet_id, "pet:migrated", "migrated hatching retains identity")
+	var valid_awake := fixture(); ok(DomainStateScript.validate_pet(valid_awake.active_pet), "valid awake pet passes")
+	var valid_sleep := fixture(); valid_sleep.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; ok(DomainStateScript.validate_pet(valid_sleep.active_pet), "valid sleeping pet passes")
+	invalid_pet = fixture().active_pet; invalid_pet.activity = {"state":"AWAKE", "sleep_started_at":1}; ok(not DomainStateScript.validate_pet(invalid_pet), "awake with sleep timestamp fails")
+	invalid_pet = fixture().active_pet; invalid_pet.activity = {"state":"DREAMING", "sleep_started_at":null}; ok(not DomainStateScript.validate_pet(invalid_pet), "unknown activity fails")
+	invalid_pet = fixture().active_pet; invalid_pet.vitals.erase("hunger"); ok(not DomainStateScript.validate_pet(invalid_pet), "missing vital fails")
+	invalid_pet = fixture().active_pet; invalid_pet.vitals.energy = -1; ok(not DomainStateScript.validate_pet(invalid_pet), "negative vital fails")
+	var clamp_session = PetGameSessionScript.new(); clamp_session.balance = BALANCE; clamp_session.lifecycle = care_session.lifecycle; clamp_session.care = care_session.care; clamp_session.profile = fixture(); clamp_session.profile.active_pet.vitals.hunger = 90.0; clamp_session.reanchor(10.0)
+	ok(clamp_session.care_action("feed", 10.0).ok and clamp_session.profile.active_pet.vitals.hunger == 100.0, "feed clamps hunger at 100")
+	var sleep_full := fixture(); sleep_full.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; sleep_full.active_pet.vitals = {"hunger":100.0,"hydration":100.0,"energy":0.0,"hygiene":100.0,"mood":80.0,"health":100.0}
+	var sleep_eight: Dictionary = SimulationKernelScript.simulate(sleep_full, 1000, 29800, BALANCE, care_session.lifecycle, care_session.care).new_state
+	approx(sleep_eight.active_pet.vitals.hunger, 83.3333333, "sleep 8h hunger")
+	approx(sleep_eight.active_pet.vitals.hydration, 66.6666667, "sleep 8h hydration")
+	eq(sleep_eight.active_pet.vitals.energy, 100.0, "sleep 8h energy")
+	approx(sleep_eight.active_pet.vitals.hygiene, 88.8888889, "sleep 8h hygiene")
+	eq(sleep_eight.active_pet.vitals.mood, 80.0, "sleep mood unchanged")
+	var sleep_chunks := sleep_full.duplicate(true)
+	for i in range(8): sleep_chunks = SimulationKernelScript.simulate(sleep_chunks, 1000 + i * 3600, 1000 + (i + 1) * 3600, BALANCE, care_session.lifecycle, care_session.care).new_state
+	for key in ["hunger", "hydration", "energy", "hygiene"]: approx(sleep_chunks.active_pet.vitals[key], sleep_eight.active_pet.vitals[key], "sleep chunking " + key)
+	var clamp_sleep := sleep_full.duplicate(true); clamp_sleep.active_pet.vitals.energy = 90.0
+	eq(SimulationKernelScript.simulate(clamp_sleep, 1000, 1000 + 28800, BALANCE, care_session.lifecycle, care_session.care).new_state.active_pet.vitals.energy, 100.0, "sleep energy clamps")
+	# Awake/sleep UI controls, reaction messages, and stable reaction text.
+	var care_ui_session = PetGameSessionScript.new(); care_ui_session.balance = BALANCE; care_ui_session.lifecycle = care_session.lifecycle; care_ui_session.care = care_session.care; care_ui_session.profile = fixture(); care_ui_session.profile.active_pet.vitals.mood = 70.0; care_ui_session.reanchor(10.0)
+	var care_screen = FoundationScreenScript.new(); care_screen.session_override = care_ui_session; care_screen._ready()
+	for name in ["Feed", "Drink", "Play", "Wash", "Touch", "Sleep"]: ok(care_screen.has_lifecycle_button(name), "awake UI has " + name)
+	var feed_button := care_screen.lifecycle_button("Feed"); var awake_rebuilds: int = care_screen.lifecycle_rebuild_count
+	for i in range(3): care_screen.refresh()
+	eq(care_screen.lifecycle_button("Feed"), feed_button, "awake feed button stable")
+	eq(care_screen.lifecycle_rebuild_count, awake_rebuilds, "awake controls do not rebuild")
+	care_screen._care("feed"); ok(care_screen.reaction_label.text.contains("ate"), "feed reaction visible")
+	var reaction_before: String = care_screen.reaction_label.text; care_screen.refresh(); eq(care_screen.reaction_label.text, reaction_before, "reaction survives refresh")
+	care_ui_session.profile.active_pet.vitals.energy = 5.0; care_screen._care("play"); ok(care_screen.reaction_label.text.contains("tired"), "low energy reaction visible")
+	care_ui_session.profile.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; care_screen.refresh(); eq(care_screen.lifecycle_rebuild_count, awake_rebuilds + 1, "awake to sleeping rebuilds once")
+	ok(care_screen.has_lifecycle_button("Wake") and not care_screen.has_lifecycle_button("Feed"), "sleeping UI shows wake only")
+	var wake_button := care_screen.lifecycle_button("Wake"); var sleep_rebuilds: int = care_screen.lifecycle_rebuild_count; care_screen.refresh(); care_screen.refresh()
+	eq(care_screen.lifecycle_button("Wake"), wake_button, "wake button stable")
+	eq(care_screen.lifecycle_rebuild_count, sleep_rebuilds, "sleep controls do not rebuild")
+	care_screen._care("feed"); ok(care_screen.reaction_label.text.contains("sleeping"), "sleep rejection reaction visible")
+	care_ui_session.profile.active_pet.activity = {"state":"AWAKE", "sleep_started_at":null}; care_screen.refresh(); eq(care_screen.lifecycle_rebuild_count, sleep_rebuilds + 1, "sleeping to awake rebuilds once")
+	care_screen.free(); care_ui_session.free(); clamp_session.free(); migrated_hatch_session.free()
+	for value in [fail_care, sleep_startup, timeline]: value.free()
+	care_session.free()
 
 func _write(path: String, content: String) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE); file.store_string(content); file.close()
+func _has_event(events: Array, event_type: String) -> bool:
+	for event in events:
+		if String(event.get("event_type", "")) == event_type: return true
+	return false
 func _reset() -> void:
 	for path in [LocalSaveRepositoryScript.PROFILE_PATH, LocalSaveRepositoryScript.BACKUP_PATH, LocalSaveRepositoryScript.TEMP_PATH, LocalSaveRepositoryScript.BACKUP_TEMP_PATH]:
 		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
