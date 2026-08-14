@@ -65,3 +65,82 @@ Domain → UI: NO
 Domain → network: NO
 
 No new gameplay, lifecycle state, persistence migration, language, generated dialogue, online system, final art or audio was added.
+
+## Acceptance Review Corrective Pass 1
+
+Previous verdict: REWORK REQUIRED
+
+Initial Phase 8 review HEAD: `a885b914cc919e77cb6f2be6df0b7ab8876379d8`
+
+### Memorial Presentation
+
+Readable born timestamp: PASS
+Readable died timestamp: PASS
+Raw epoch hidden from player surface: PASS
+Developer raw timestamp diagnostics retained: PASS
+
+Memorial player text now formats valid persisted integer instants deterministically as UTC and returns `Unknown` for null/invalid values. It does not alter persisted timestamp fields or diagnostic inspector output.
+
+### Time Machine Production Path
+
+Egg READY: PASS
+Needs: PASS
+Growth: PASS
+CRITICAL: PASS
+Death: PASS
+No alternate simulation math: PASS
+
+The tests locate the actual developer Time Machine Buttons and emit each chosen button signal. They verify the normal `advance_debug` path for egg readiness, passive needs, CHILD transition, CRITICAL transition and permanent deprivation death.
+
+### Care UI
+
+Feed: PASS
+Drink: PASS
+Wash: PASS
+Touch: PASS
+Play: PASS
+Sleep: PASS
+Wake: PASS
+Rejected-action feedback: PASS
+
+Each accepted care action is triggered through its polished context Button callback. The UI presents fixed non-dialogue feedback and preserves Application reason codes. The Sleep callback rebuild now uses deferred control disposal so the currently emitting Button is never freed synchronously.
+
+### Portrait Reachability
+
+360×640: PASS
+Scroll hierarchy: PASS
+Context controls reachable: PASS
+Language controls reachable: PASS
+Developer tools reachable: PASS
+All target sizes >= 44: PASS
+
+### Read-only Rendering
+
+Normal refresh: PASS
+Developer toggle: PASS
+Developer refresh: PASS
+Companion visual update: PASS
+Persistence write count unchanged: PASS
+
+### Regression
+
+Phase 0–7: PASS
+Schema v8 unchanged: PASS
+Simulation v6 unchanged: PASS
+Domain/Application semantics unchanged: PASS
+
+### Tests
+
+1174 passed, 0 failed
+
+### Project Validation
+
+PASS
+
+### Architecture
+
+PASS
+
+### Scope
+
+PASS

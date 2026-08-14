@@ -23,6 +23,7 @@ var language_panel: VBoxContainer
 var developer_panel: VBoxContainer
 var developer_toggle: Button
 var developer_time_machine: HBoxContainer
+var player_scroll: ScrollContainer
 var developer_panel_visible := false
 var button_style: StyleBoxFlat
 var button_hover_style: StyleBoxFlat
@@ -33,13 +34,13 @@ func _session():
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_apply_lightweight_theme()
-	var scroll := ScrollContainer.new()
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 12)
-	add_child(scroll)
+	player_scroll = ScrollContainer.new()
+	player_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 12)
+	add_child(player_scroll)
 	panel = VBoxContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.add_theme_constant_override("separation", 10)
-	scroll.add_child(panel)
+	player_scroll.add_child(panel)
 	companion_header = Label.new()
 	companion_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	companion_header.add_theme_font_size_override("font_size", 22)
@@ -145,7 +146,11 @@ func refresh_lifecycle_panel() -> void:
 	_update_lifecycle_dynamic_text()
 
 func _rebuild_lifecycle_panel(signature: String) -> void:
-	for child in lifecycle_panel.get_children(): child.free()
+	# A lifecycle change can occur inside an action Button callback (for example
+	# Sleep). Defer node disposal so Godot never frees the currently-emitting node.
+	for child in lifecycle_panel.get_children():
+		child.visible = false
+		child.queue_free()
 	lifecycle_rebuild_count += 1
 	lifecycle_remaining = null
 	if signature == "EGG:INCUBATING":
@@ -198,7 +203,7 @@ func _update_lifecycle_dynamic_text() -> void:
 	elif signature.begins_with("MEMORIAL:SNAPSHOT:"):
 		var snapshot: Dictionary = p.get("memorials", [])[-1].get("pet_snapshot", {})
 		companion_header.text = "%s Memorial" % String(snapshot.get("identity", {}).get("name", "Pet"))
-		lifecycle_status.text = "%s\nBorn %s · Died %s\nCause: %s" % [String(snapshot.get("life", {}).get("growth_stage", "NEWBORN")).capitalize(), snapshot.get("identity", {}).get("born_at", "n/a"), snapshot.get("life", {}).get("died_at", "n/a"), _readable_cause(String(snapshot.get("life", {}).get("death_cause", "Unknown")))]
+		lifecycle_status.text = "%s\nBorn: %s\nDied: %s\nCause: %s" % [String(snapshot.get("life", {}).get("growth_stage", "NEWBORN")).capitalize(), _format_timestamp(snapshot.get("identity", {}).get("born_at")), _format_timestamp(snapshot.get("life", {}).get("died_at")), _readable_cause(String(snapshot.get("life", {}).get("death_cause", "Unknown")))]
 	elif signature.begins_with("MEMORIAL:HISTORICAL_ONLY:"):
 		companion_header.text = "Memorial"
 		lifecycle_status.text = "Historical memorials: %s" % p.get("memorial_count", 0)
@@ -239,7 +244,7 @@ func has_lifecycle_button(text: String) -> bool:
 
 func lifecycle_button(text: String) -> Button:
 	for child in lifecycle_panel.get_children():
-		if child is Button and child.text == text: return child
+		if child is Button and child.visible and child.text == text: return child
 	return null
 
 func has_need_label(key: String) -> bool:
@@ -311,6 +316,12 @@ func _pet_header(profile: Dictionary) -> String:
 
 func _readable_cause(cause: String) -> String:
 	return cause.replace("_", " ").capitalize()
+
+func _format_timestamp(at: Variant) -> String:
+	if not (at is int) or int(at) < 0: return "Unknown"
+	var utc := Time.get_datetime_dict_from_unix_time(int(at))
+	if not (utc is Dictionary): return "Unknown"
+	return "%04d-%02d-%02d %02d:%02d UTC" % [int(utc.get("year", 0)), int(utc.get("month", 0)), int(utc.get("day", 0)), int(utc.get("hour", 0)), int(utc.get("minute", 0))]
 
 func _hatch() -> void:
 	var now: int = _session().clock.wall_utc()
