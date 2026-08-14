@@ -30,7 +30,7 @@ v4 profiles migrate to v5 with `survival_balance_version = 1`, a stable survival
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
 
-Result: **336 passed, 0 failed**.
+Result: **384 passed, 0 failed**.
 
 Coverage includes Phase 0–3 regression, protection, zero-need boundary timing, damage rates, deterministic critical/death timestamps, offline death, death freezing, rescue, dead-care rejection, memorial persistence failure safety, explicit new egg and v4→v5 migration/validation.
 
@@ -67,3 +67,33 @@ Application eligibility remains snapshot-backed (`memorial_count > 0` and non-em
 ### Acceptance completion
 
 Direct executable coverage now includes permanent death through resume/debug/backward-clock paths, dead-care rejection, complete survival validation, v4 egg/HATCHING migration and completion, critical→death chronology, memorial/new-egg failure authority, no unattended memorial, New Egg 4-hour/offline READY behavior, and the full critical/dead/memorial UI transition matrix.
+
+## Acceptance Review Corrective Pass 3
+
+Previous verdict: `REWORK REQUIRED`
+
+Pre-correction review HEAD: `90fb3a23ef7349f5d69d1bf81487eea39dcc34a5`
+
+### Gap 1 — Memorial failure authority
+
+Production code changed: NO.
+
+Direct failure injection proves `PERSIST_FAILED` leaves the active DEAD pet, count, snapshots, recent events, and persisted recovery state unchanged; no authoritative `pet_memorialized` event is created.
+
+### Gap 2 — Double memorialization
+
+After one successful transaction, a second call is rejected with active subject remaining NONE. It does not increment the count, append a snapshot, or emit another `pet_memorialized` event.
+
+### Gap 3 — New Egg failure authority
+
+Direct failure injection on a snapshot-backed memorial proves `PERSIST_FAILED` leaves NONE/null active state, memorial history, count, and event history unchanged; no `egg_received` becomes authoritative.
+
+### Gap 4 — Replacement Egg lifecycle
+
+The explicit replacement egg has a fresh durable ID, `source = new_cycle` event, and the normal 4-hour incubation. A fresh Application session reconciles it to READY after 8 hours, persists READY, and never begins HATCHING or creates a pet unattended.
+
+### Regression
+
+Full suite: **384 passed, 0 failed**.
+
+Project validation: PASS. Phase 0–3 and Phase 4 core: PASS. Architecture and scope: PASS.

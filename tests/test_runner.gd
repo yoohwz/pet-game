@@ -522,6 +522,46 @@ func _run() -> void:
 	var v4_hatching_session = PetGameSessionScript.new(); v4_hatching_session.balance = BALANCE; v4_hatching_session.lifecycle = care_session.lifecycle; v4_hatching_session.care = care_session.care; v4_hatching_session.survival = SURVIVAL; v4_hatching_session.profile = v5_hatching; ok(v4_hatching_session.complete_hatching(16000, 10.0), "migrated v4 hatching completes"); eq(v4_hatching_session.profile.active_pet.identity.pet_id, "pet:v4-reserved", "migrated v4 hatching uses reserved pet identity")
 	# Critical/death chronology is ordered in a single long reconciliation.
 	ok(_event_index(dead_result.generated_events, "pet_became_critical") < _event_index(dead_result.generated_events, "pet_died"), "critical event precedes death event"); ok(dead_result.new_state.active_pet.survival.critical_started_at < dead_result.new_state.active_pet.life.died_at, "critical timestamp precedes death timestamp")
+	# Final transaction authority evidence: failed candidates never replace profile or recovery state.
+	_reset(); var authority_dead: Dictionary = dead_result.new_state.duplicate(true); authority_dead.initial_egg_issued = true; ok(LocalSaveRepositoryScript.save_profile(authority_dead), "persist active dead pet for memorial authority")
+	var memorial_authority = PetGameSessionScript.new(); memorial_authority.balance = BALANCE; memorial_authority.lifecycle = care_session.lifecycle; memorial_authority.care = care_session.care; memorial_authority.survival = SURVIVAL; memorial_authority.profile = authority_dead.duplicate(true); memorial_authority.reanchor(10.0)
+	var before_memorial_count: int = memorial_authority.profile.memorial_count; var before_memorials: Array = memorial_authority.profile.memorials.duplicate(true); var before_memorial_events: Array = memorial_authority.profile.recent_events.duplicate(true); var before_dead_pet: Dictionary = memorial_authority.profile.active_pet.duplicate(true)
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	var failed_memorial_result: Dictionary = memorial_authority.memorialize_pet(10.0)
+	eq(failed_memorial_result.ok, false, "failed memorial returns failure"); eq(failed_memorial_result.reason, "PERSIST_FAILED", "failed memorial reports persistence reason")
+	eq(memorial_authority.profile.active_subject, "PET", "failed memorial keeps active subject")
+	eq(memorial_authority.profile.active_pet, before_dead_pet, "failed memorial preserves complete dead pet")
+	eq(memorial_authority.profile.memorial_count, before_memorial_count, "failed memorial preserves count")
+	eq(memorial_authority.profile.memorials, before_memorials, "failed memorial preserves snapshots")
+	eq(memorial_authority.profile.recent_events, before_memorial_events, "failed memorial preserves recent events")
+	ok(not _has_event(memorial_authority.profile.recent_events, "pet_memorialized"), "failed memorial has no authoritative event")
+	var recovered_dead: Dictionary = LocalSaveRepositoryScript.load_profile(); eq(recovered_dead.active_subject, "PET", "failed memorial recovery keeps dead subject"); ok(not _has_event(recovered_dead.recent_events, "pet_memorialized"), "failed memorial event is not durable")
+	# Successful memorialization is exact-once at the active-pet boundary.
+	ok(memorial_authority.memorialize_pet(10.0).ok, "first memorialization succeeds")
+	var after_memorial_count: int = memorial_authority.profile.memorial_count; var after_memorial_size: int = memorial_authority.profile.memorials.size(); var after_memorial_events: int = _count_events(memorial_authority.profile.recent_events, "pet_memorialized")
+	var second_memorial: Dictionary = memorial_authority.memorialize_pet(10.0)
+	eq(second_memorial.ok, false, "second memorialization rejected"); eq(memorial_authority.profile.active_subject, "NONE", "second memorialization retains none state"); eq(memorial_authority.profile.active_pet, null, "second memorialization keeps pet absent")
+	eq(memorial_authority.profile.memorial_count, after_memorial_count, "second memorialization preserves count"); eq(memorial_authority.profile.memorials.size(), after_memorial_size, "second memorialization adds no snapshot"); eq(_count_events(memorial_authority.profile.recent_events, "pet_memorialized"), after_memorial_events, "second memorialization adds no event")
+	# Memorial startup is inert; New Egg is always an explicit action.
+	var memorial_startup = PetGameSessionScript.new(); memorial_startup.balance = BALANCE; memorial_startup.lifecycle = care_session.lifecycle; memorial_startup.care = care_session.care; memorial_startup.survival = SURVIVAL; memorial_startup.initialize_session(20000, 20.0)
+	eq(memorial_startup.profile.active_subject, "NONE", "memorial startup issues no automatic egg"); eq(memorial_startup.profile.active_egg, null, "memorial startup has no active egg"); eq(memorial_startup.profile.memorials.size(), after_memorial_size, "memorial startup preserves snapshots"); ok(not _has_event(memorial_startup.profile.recent_events, "egg_received"), "memorial startup adds no egg event")
+	# Replacement egg failure candidate authority, then explicit creation and offline READY integration.
+	var egg_authority = PetGameSessionScript.new(); egg_authority.balance = BALANCE; egg_authority.lifecycle = care_session.lifecycle; egg_authority.care = care_session.care; egg_authority.survival = SURVIVAL; egg_authority.profile = memorial_authority.profile.duplicate(true); egg_authority.reanchor(10.0)
+	var before_egg_subject: String = String(egg_authority.profile.active_subject); var before_egg_value: Variant = egg_authority.profile.active_egg; var before_egg_count: int = egg_authority.profile.memorial_count; var before_egg_memorials: Array = egg_authority.profile.memorials.duplicate(true); var before_egg_events: Array = egg_authority.profile.recent_events.duplicate(true)
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	var failed_egg_result: Dictionary = egg_authority.request_new_egg(10.0)
+	eq(failed_egg_result.ok, false, "failed new egg returns failure"); eq(failed_egg_result.reason, "PERSIST_FAILED", "failed new egg reports persistence reason")
+	eq(String(egg_authority.profile.active_subject), before_egg_subject, "failed new egg preserves subject"); eq(egg_authority.profile.active_egg, before_egg_value, "failed new egg preserves null egg"); eq(egg_authority.profile.memorial_count, before_egg_count, "failed new egg preserves count"); eq(egg_authority.profile.memorials, before_egg_memorials, "failed new egg preserves snapshots"); eq(egg_authority.profile.recent_events, before_egg_events, "failed new egg preserves events"); ok(not _has_event(egg_authority.profile.recent_events, "egg_received"), "failed new egg has no authoritative event")
+	var old_pet_id := String(egg_authority.profile.memorials[-1].pet_snapshot.identity.pet_id)
+	ok(egg_authority.request_new_egg(10.0).ok, "explicit replacement egg succeeds")
+	eq(egg_authority.profile.active_subject, "EGG", "replacement egg becomes active subject"); eq(egg_authority.profile.active_pet, null, "replacement egg has no pet"); eq(egg_authority.profile.active_egg.state, "INCUBATING", "replacement egg starts incubating"); eq(egg_authority.profile.initial_egg_issued, true, "replacement egg retains initial issue marker")
+	var replacement_egg: Dictionary = egg_authority.profile.active_egg; ok(not String(replacement_egg.egg_id).is_empty() and String(replacement_egg.egg_id) != old_pet_id, "replacement egg receives fresh identity")
+	eq(int(replacement_egg.hatch_ready_at) - int(replacement_egg.received_at), 14400, "replacement egg uses four hour incubation")
+	var replacement_event: Dictionary = egg_authority.profile.recent_events[-1]; eq(replacement_event.event_type, "egg_received", "replacement egg emits received event"); eq(replacement_event.subject_id, replacement_egg.egg_id, "replacement egg event uses egg subject"); eq(replacement_event.payload.source, "new_cycle", "replacement egg event marks new cycle")
+	var replacement_ready = PetGameSessionScript.new(); replacement_ready.balance = BALANCE; replacement_ready.lifecycle = care_session.lifecycle; replacement_ready.care = care_session.care; replacement_ready.survival = SURVIVAL; replacement_ready.initialize_session(int(replacement_egg.received_at) + 28800, 20.0)
+	eq(replacement_ready.profile.active_subject, "EGG", "replacement egg remains egg after offline reconciliation"); eq(replacement_ready.profile.active_egg.state, "READY", "replacement egg becomes ready offline"); eq(replacement_ready.profile.active_pet, null, "replacement ready has no pet"); eq(replacement_ready.profile.active_egg.reserved_pet_id, null, "replacement ready has no reservation"); eq(replacement_ready.profile.active_egg.reserved_pet_seed, null, "replacement ready has no seed"); eq(replacement_ready.profile.active_egg.hatching_started_at, null, "replacement ready has not started hatching"); ok(not _has_event(replacement_ready.profile.recent_events, "pet_hatched"), "replacement ready has no unattended birth")
+	var persisted_replacement: Dictionary = LocalSaveRepositoryScript.load_profile(); eq(persisted_replacement.active_egg.state, "READY", "replacement ready reconciliation persists")
+	replacement_ready.free(); egg_authority.free(); memorial_startup.free(); memorial_authority.free()
 	v4_hatching_session.free(); historical_screen.free(); historical_ui_session.free(); critical_screen.free(); critical_ui_session.free(); permanent_session.free()
 	death_screen.free(); death_ui_session.free(); failed_egg.free(); legacy_session.free(); partial_session.free()
 	offline_death_session.free(); failed_memorial.free(); dead_session.free(); rescue_session.free()
@@ -539,6 +579,11 @@ func _event_index(events: Array, event_type: String) -> int:
 	for index in range(events.size()):
 		if String(events[index].get("event_type", "")) == event_type: return index
 	return -1
+func _count_events(events: Array, event_type: String) -> int:
+	var count: int = 0
+	for event in events:
+		if String(event.get("event_type", "")) == event_type: count += 1
+	return count
 func _reset() -> void:
 	for path in [LocalSaveRepositoryScript.PROFILE_PATH, LocalSaveRepositoryScript.BACKUP_PATH, LocalSaveRepositoryScript.TEMP_PATH, LocalSaveRepositoryScript.BACKUP_TEMP_PATH]:
 		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
