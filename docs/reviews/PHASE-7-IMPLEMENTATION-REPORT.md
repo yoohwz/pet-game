@@ -34,9 +34,9 @@ ALIVE/AWAKE pets show stable input/Send controls and read-only intent/topic/reac
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
 
-Result: **937 passed, 0 failed**.
+Result: **948 passed, 0 failed**.
 
-Key evidence: local rules/config PASS; English/Vietnamese deterministic classification PASS; rejection/candidate failure authority PASS; event/payload and Memory v2 projection PASS; repeat/familiar-topic cues PASS; bounded-memory semantics PASS; v7→v8 migration/validation PASS; UI stability PASS; Phase 0–6 regression PASS.
+Key evidence: local rules/config PASS; English/Vietnamese deterministic classification PASS; rejection/candidate failure authority PASS; event/payload and Memory v2 projection PASS; repeat/familiar-topic cues PASS; bounded-memory semantics PASS; active/memorial v7→v8 migration PASS; memorial preservation/replacement isolation PASS; UI stability PASS; Phase 0–6 regression PASS.
 
 ## Architecture and Scope
 
