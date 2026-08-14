@@ -12,8 +12,10 @@ const DefaultSurvivalBalanceScript = preload("res://application/game_session/def
 const DefaultRelationshipBalanceScript = preload("res://application/relationship/default_relationship_balance.gd")
 const DefaultMemoryConfigScript = preload("res://application/memory/default_memory_config.gd")
 const DefaultGrowthBalanceScript = preload("res://application/growth/default_growth_balance.gd")
+const DefaultLanguageRulesScript = preload("res://application/language/default_language_rules.gd")
 const RelationshipModelScript = preload("res://domain/relationship/relationship_model.gd")
 const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
+const LanguageModelScript = preload("res://domain/language/language_model.gd")
 
 var clock := ClockProviderScript.new()
 var profile: Dictionary = {}
@@ -28,6 +30,7 @@ var survival: Dictionary = {}
 var relationship_balance: Dictionary = {}
 var memory_config: Dictionary = {}
 var growth: Dictionary = {}
+var language_rules: Dictionary = {}
 var id_rng := RandomNumberGenerator.new()
 var persistence_write_count := 0 # Narrow observability seam for headless cadence tests.
 
@@ -39,6 +42,7 @@ func _ready() -> void:
 	relationship_balance = DefaultRelationshipBalanceScript.load_config()
 	memory_config = DefaultMemoryConfigScript.load_config()
 	growth = DefaultGrowthBalanceScript.load_config()
+	language_rules = DefaultLanguageRulesScript.load_config()
 	id_rng.randomize()
 	initialize_session(clock.wall_utc(), clock.monotonic_seconds())
 
@@ -158,6 +162,25 @@ func care_action(action: String, monotonic_now: float) -> Dictionary:
 	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
 	profile = candidate; last_autosave_monotonic = monotonic_now
 	return {"ok":true,"reason":""}
+
+func speak_to_pet(text: String, monotonic_now: float) -> Dictionary:
+	advance_active_to(monotonic_now)
+	if String(profile.get("active_subject", "")) != "PET": return {"ok":false,"reason":"NO_PET"}
+	var pet: Dictionary = profile.active_pet
+	if String(pet.get("life", {}).get("life_state", "")) == "DEAD": return {"ok":false,"reason":"PET_DEAD"}
+	if String(pet.get("activity", {}).get("state", "")) == "SLEEPING": return {"ok":false,"reason":"PET_SLEEPING"}
+	var understood: Dictionary = LanguageModelScript.understand(text, pet.get("memory", {}), language_rules)
+	if not bool(understood.get("ok", false)): return {"ok":false,"reason":String(understood.get("reason", "EMPTY_MESSAGE"))}
+	var candidate: Dictionary = profile.duplicate(true)
+	var at := int(candidate.simulation.last_simulated_at)
+	var payload: Dictionary = {"text":text,"normalized_text":understood.normalized_text,"intent":understood.intent,"topics":understood.topics,"sentiment":understood.sentiment,"reaction":understood.reaction,"memory_cue":understood.memory_cue,"language_version":1,"language_rules_version":int(understood.language_rules_version),"matched_rule_id":understood.matched_rule_id}
+	var event := _application_event("pet_heard_message", at, String(candidate.active_pet.identity.pet_id), payload)
+	_append_event_to(candidate, event)
+	_project_pet_event(candidate, event)
+	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
+	profile = candidate; last_autosave_monotonic = monotonic_now
+	understood["ok"] = true; understood["reason"] = ""; understood["event"] = event
+	return understood
 
 func memorialize_pet(monotonic_now: float) -> Dictionary:
 	advance_active_to(monotonic_now)

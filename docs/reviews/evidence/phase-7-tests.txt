@@ -1,0 +1,5 @@
+Command: godot --headless --path . -s res://tests/test_runner.gd
+
+Godot Engine v4.7.1.stable.official.a13da4feb
+
+RESULT: 1002 passed, 0 failed

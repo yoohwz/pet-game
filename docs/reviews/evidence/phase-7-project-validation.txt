@@ -1,0 +1,7 @@
+Commands:
+godot --headless --path . --editor --quit
+godot --headless --path . --quit-after 1
+
+Godot Engine v4.7.1.stable.official.a13da4feb
+
+Result: PASS (both commands exited 0)

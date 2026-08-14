@@ -6,7 +6,18 @@ const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 
 static func migrate(data: Dictionary) -> Dictionary:
 	var version := int(data.get("schema_version", 0))
-	if version == 7: return _normalize_v7_integer_fields(data)
+	if version == 8: return _normalize_v8_integer_fields(data)
+	if version == 7:
+		var v8: Dictionary = data.duplicate(true); v8["schema_version"] = 8
+		if v8.get("active_pet") is Dictionary: v8["active_pet"] = _migrate_pet_v8(v8.active_pet)
+		if v8.get("active_egg") is Dictionary: v8.active_egg["schema_version"] = 8
+		var memorials_v8: Array = []
+		for memorial_value in v8.get("memorials", []):
+			var memorial: Dictionary = memorial_value.duplicate(true)
+			if memorial.get("pet_snapshot") is Dictionary: memorial["pet_snapshot"] = _migrate_pet_v8(memorial.pet_snapshot)
+			memorials_v8.append(memorial)
+		v8["memorials"] = memorials_v8
+		return _normalize_v8_integer_fields(v8)
 	if version == 6:
 		var v7: Dictionary = data.duplicate(true); v7["schema_version"] = 7
 		var s7: Dictionary = v7.get("simulation", {}).duplicate(true); s7["simulation_version"] = 6; s7["growth_balance_version"] = 1; v7["simulation"] = s7
@@ -18,7 +29,7 @@ static func migrate(data: Dictionary) -> Dictionary:
 			if memorial.get("pet_snapshot") is Dictionary: memorial["pet_snapshot"] = _migrate_pet_v7(memorial.pet_snapshot)
 			v7_memorials.append(memorial)
 		v7["memorials"] = v7_memorials
-		return _normalize_v7_integer_fields(v7)
+		return migrate(v7)
 	if version == 5:
 		var v6: Dictionary = data.duplicate(true); v6["schema_version"] = 6
 		if v6.get("active_pet") is Dictionary: v6["active_pet"] = _migrate_pet(v6.active_pet)
@@ -80,10 +91,21 @@ static func _migrate_pet_v7(pet: Dictionary) -> Dictionary:
 	next["growth"] = {"growth_version":1, "growth_balance_version":1, "stage_started_at":int(existing_growth.get("stage_started_at", born_at)) if int(existing_growth.get("stage_started_at", born_at)) >= born_at else born_at}
 	return next
 
+static func _migrate_pet_v8(pet: Dictionary) -> Dictionary:
+	var next: Dictionary = pet.duplicate(true)
+	next["schema_version"] = 8
+	var memory: Dictionary = next.get("memory", {}).duplicate(true)
+	memory["memory_version"] = 2
+	var semantic: Dictionary = memory.get("semantic", {}).duplicate(true)
+	semantic["language"] = MemoryModelScript.new_language_semantic()
+	memory["semantic"] = semantic
+	next["memory"] = memory
+	return next
+
 # Godot's JSON parser represents numeric literals as floats. These fields are
 # contractually integers, so canonicalize only exact whole values before domain
 # validation. Fractional external data remains fractional and is rejected.
-static func _normalize_v7_integer_fields(data: Dictionary) -> Dictionary:
+static func _normalize_v8_integer_fields(data: Dictionary) -> Dictionary:
 	var next: Dictionary = data.duplicate(true)
 	var simulation: Dictionary = next.get("simulation", {}).duplicate(true)
 	simulation["growth_balance_version"] = _whole_int_or_original(simulation.get("growth_balance_version"))
@@ -124,6 +146,11 @@ static func _normalize_pet_memory_numbers(pet: Dictionary) -> Dictionary:
 		var event: Dictionary = event_value.duplicate(true)
 		for key in ["sequence", "occurred_at", "valence", "importance"]:
 			event[key] = _whole_int_or_original(event.get(key))
+		if String(event.get("event_type", "")) == "pet_heard_message":
+			var details: Dictionary = event.get("details", {}).duplicate(true)
+			for key in ["language_version", "language_rules_version", "sentiment"]:
+				details[key] = _whole_int_or_original(details.get(key))
+			event["details"] = details
 		events.append(event)
 	memory["events"] = events
 	var routine: Dictionary = memory.get("routine", {}).duplicate(true)
@@ -137,6 +164,15 @@ static func _normalize_pet_memory_numbers(pet: Dictionary) -> Dictionary:
 	var semantic: Dictionary = memory.get("semantic", {}).duplicate(true)
 	for key in ["care_interaction_count", "rescue_count", "critical_count"]:
 		semantic[key] = _whole_int_or_original(semantic.get(key))
+	if semantic.get("language") is Dictionary:
+		var language: Dictionary = semantic.language.duplicate(true)
+		for key in ["message_count", "repeated_message_count"]: language[key] = _whole_int_or_original(language.get(key))
+		for count_key in ["intent_counts", "topic_counts"]:
+			var counts: Dictionary = language.get(count_key, {}).duplicate(true)
+			for key in counts.keys(): counts[key] = _whole_int_or_original(counts[key])
+			language[count_key] = counts
+		if language.get("last_message_at") != null: language["last_message_at"] = _whole_int_or_original(language.get("last_message_at"))
+		semantic["language"] = language
 	memory["semantic"] = semantic
 	next["memory"] = memory
 	return next

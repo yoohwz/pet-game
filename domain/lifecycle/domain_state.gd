@@ -1,7 +1,7 @@
 class_name DomainState
 extends RefCounted
 
-const SCHEMA_VERSION := 7
+const SCHEMA_VERSION := 8
 const RelationshipModelScript = preload("res://domain/relationship/relationship_model.gd")
 const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 const ACTIVE_NONE := "NONE"
@@ -90,7 +90,7 @@ static func _validate_relationship(relationship_value: Variant) -> bool:
 static func _validate_memory(memory_value: Variant) -> bool:
 	if not (memory_value is Dictionary): return false
 	var memory: Dictionary = memory_value
-	if not (memory.get("memory_version") is int) or int(memory.get("memory_version", 0)) != 1 or not (memory.get("next_sequence") is int) or int(memory.next_sequence) < 0: return false
+	if not (memory.get("memory_version") is int) or int(memory.get("memory_version", 0)) != 2 or not (memory.get("next_sequence") is int) or int(memory.next_sequence) < 0: return false
 	var events_value = memory.get("events")
 	if not (events_value is Array) or events_value.size() > 64: return false
 	var seen_memory := {}; var seen_source := {}; var previous := -1
@@ -101,7 +101,9 @@ static func _validate_memory(memory_value: Variant) -> bool:
 			if not event.has(key): return false
 		if not (event.memory_id is String) or String(event.memory_id).is_empty() or not (event.source_event_id is String) or String(event.source_event_id).is_empty() or not (event.sequence is int) or int(event.sequence) < 0 or int(event.sequence) <= previous: return false
 		if seen_memory.has(event.memory_id) or seen_source.has(event.source_event_id): return false
-		if not (event.event_type is String) or String(event.event_type).is_empty() or not (event.occurred_at is int) or not (event.category is String) or String(event.category) not in ["CARE", "ROUTINE", "LIFECYCLE", "SURVIVAL"] or not (event.valence is int) or int(event.valence) not in [-1, 0, 1] or not (event.importance is int) or int(event.importance) < 0 or int(event.importance) > 4 or not (event.details is Dictionary): return false
+		if not (event.event_type is String) or String(event.event_type).is_empty() or not (event.occurred_at is int) or not (event.category is String) or String(event.category) not in ["CARE", "ROUTINE", "LIFECYCLE", "SURVIVAL", "LANGUAGE"] or not (event.valence is int) or int(event.valence) not in [-1, 0, 1] or not (event.importance is int) or int(event.importance) < 0 or int(event.importance) > 4 or not (event.details is Dictionary): return false
+		if String(event.event_type) == "pet_heard_message":
+			if String(event.category) != "LANGUAGE" or int(event.importance) != 1 or int(event.valence) != int(event.details.get("sentiment", 99)) or not _validate_language_payload(event.details): return false
 		seen_memory[event.memory_id] = true; seen_source[event.source_event_id] = true; previous = int(event.sequence)
 	if previous >= 0 and int(memory.next_sequence) <= previous: return false
 	var routine: Variant = memory.get("routine")
@@ -114,4 +116,31 @@ static func _validate_memory(memory_value: Variant) -> bool:
 	if not (semantic is Dictionary): return false
 	for key in ["care_interaction_count", "rescue_count", "critical_count"]:
 		if not (semantic.get(key) is int) or int(semantic.get(key, -1)) < 0: return false
+	if not _validate_language_semantic(semantic.get("language")): return false
 	return semantic.get("favorite_interaction") == null or String(semantic.get("favorite_interaction")) in MemoryModelScript.CARE_ACTIONS
+
+static func _validate_language_payload(payload: Dictionary) -> bool:
+	if not (payload.get("language_version") is int) or int(payload.get("language_version", 0)) != 1 or not (payload.get("language_rules_version") is int) or int(payload.get("language_rules_version", 0)) != 1: return false
+	if not (payload.get("text") is String) or not (payload.get("normalized_text") is String) or String(payload.get("intent", "")) not in MemoryModelScript.LANGUAGE_INTENTS or not (payload.get("topics") is Array) or not (payload.get("sentiment") is int) or int(payload.get("sentiment")) not in [-1,0,1] or String(payload.get("reaction", "")) not in ["ACKNOWLEDGE","AFFECTIONATE","HAPPY","EXCITED","EAGER","SLEEPY","FORGIVING","COMFORTING","CURIOUS","LISTENING"] or String(payload.get("memory_cue", "")) not in ["NONE","RECOGNIZED_REPEAT","FAMILIAR_TOPIC"]: return false
+	if payload.has("matched_rule_id") and payload.get("matched_rule_id") != null and not (payload.get("matched_rule_id") is String): return false
+	return _canonical_topics(payload.topics)
+
+static func _validate_language_semantic(value: Variant) -> bool:
+	if not (value is Dictionary): return false
+	var language: Dictionary = value
+	for key in ["message_count", "repeated_message_count"]:
+		if not (language.get(key) is int) or int(language.get(key, -1)) < 0: return false
+	for pair in [["intent_counts", MemoryModelScript.LANGUAGE_INTENTS], ["topic_counts", MemoryModelScript.LANGUAGE_TOPICS]]:
+		var counts = language.get(pair[0]); if not (counts is Dictionary) or counts.keys().size() != pair[1].size(): return false
+		for key in pair[1]: if not (counts.get(key) is int) or int(counts.get(key, -1)) < 0: return false
+	if language.get("last_message_at") != null and not (language.get("last_message_at") is int): return false
+	if language.get("last_intent") != null and String(language.get("last_intent")) not in MemoryModelScript.LANGUAGE_INTENTS: return false
+	return language.get("last_topics") is Array and _canonical_topics(language.last_topics)
+
+static func _canonical_topics(topics: Array) -> bool:
+	var previous := -1
+	for topic in topics:
+		var index := MemoryModelScript.LANGUAGE_TOPICS.find(String(topic))
+		if index < 0 or index <= previous: return false
+		previous = index
+	return true

@@ -3,12 +3,20 @@ extends RefCounted
 
 const ROUTINE_ACTIONS := ["feed", "drink", "play", "wash", "touch", "sleep", "wake"]
 const CARE_ACTIONS := ["feed", "drink", "play", "wash", "touch"]
-const MAPPING := {"pet_hatched":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_grew":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_fed":{"category":"CARE","importance":1}, "pet_drank":{"category":"CARE","importance":1}, "pet_washed":{"category":"CARE","importance":1}, "pet_touched":{"category":"CARE","importance":1,"valence":1}, "pet_played":{"category":"CARE","importance":1,"valence":1}, "pet_sleep_started":{"category":"ROUTINE","importance":0,"valence":0}, "pet_woke":{"category":"ROUTINE","importance":0,"valence":0}, "pet_became_critical":{"category":"SURVIVAL","importance":3,"valence":-1}, "pet_stabilized":{"category":"SURVIVAL","importance":3,"valence":1}, "pet_died":{"category":"SURVIVAL","importance":4,"valence":-1}}
+const LANGUAGE_INTENTS := ["GREETING","AFFECTION","PRAISE","PLAY_INVITE","FOOD_OFFER","GOODNIGHT","APOLOGY","USER_SAD","USER_HAPPY","QUESTION","OTHER"]
+const LANGUAGE_TOPICS := ["FOOD","PLAY","SLEEP","PET","USER"]
+const MAPPING := {"pet_hatched":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_grew":{"category":"LIFECYCLE","importance":4,"valence":1}, "pet_heard_message":{"category":"LANGUAGE","importance":1}, "pet_fed":{"category":"CARE","importance":1}, "pet_drank":{"category":"CARE","importance":1}, "pet_washed":{"category":"CARE","importance":1}, "pet_touched":{"category":"CARE","importance":1,"valence":1}, "pet_played":{"category":"CARE","importance":1,"valence":1}, "pet_sleep_started":{"category":"ROUTINE","importance":0,"valence":0}, "pet_woke":{"category":"ROUTINE","importance":0,"valence":0}, "pet_became_critical":{"category":"SURVIVAL","importance":3,"valence":-1}, "pet_stabilized":{"category":"SURVIVAL","importance":3,"valence":1}, "pet_died":{"category":"SURVIVAL","importance":4,"valence":-1}}
 
 static func new_memory() -> Dictionary:
 	var routine := {}
 	for action in ROUTINE_ACTIONS: routine[action] = {"count":0, "meaningful_count":0, "last_at":null}
-	return {"memory_version":1, "next_sequence":0, "events":[], "routine":routine, "semantic":{"care_interaction_count":0, "rescue_count":0, "critical_count":0, "favorite_interaction":null}}
+	return {"memory_version":2, "next_sequence":0, "events":[], "routine":routine, "semantic":{"care_interaction_count":0, "rescue_count":0, "critical_count":0, "favorite_interaction":null, "language":new_language_semantic()}}
+
+static func new_language_semantic() -> Dictionary:
+	var intents := {}; var topics := {}
+	for intent in LANGUAGE_INTENTS: intents[intent] = 0
+	for topic in LANGUAGE_TOPICS: topics[topic] = 0
+	return {"message_count":0,"repeated_message_count":0,"intent_counts":intents,"topic_counts":topics,"last_message_at":null,"last_intent":null,"last_topics":[]}
 
 static func project(memory: Dictionary, event: Dictionary, config: Dictionary) -> Dictionary:
 	var next: Dictionary = memory.duplicate(true)
@@ -23,7 +31,7 @@ static func project(memory: Dictionary, event: Dictionary, config: Dictionary) -
 	var action := String(details.get("action", _action_for_event(event_type)))
 	if not action.is_empty(): details["action"] = action
 	var meaningful := bool(details.get("meaningful", event_type in ["pet_touched", "pet_played"]))
-	var valence := int(mapping.get("valence", 1 if meaningful else 0))
+	var valence := int(details.get("sentiment", mapping.get("valence", 1 if meaningful else 0))) if event_type == "pet_heard_message" else int(mapping.get("valence", 1 if meaningful else 0))
 	var record := {"schema_version":1, "memory_id":"memory:%s" % source_id, "source_event_id":source_id, "sequence":int(next.next_sequence), "event_type":event_type, "occurred_at":int(event.get("occurred_at", 0)), "category":mapping.category, "valence":valence, "importance":int(mapping.importance), "details":details}
 	next.events.append(record); next.next_sequence = int(next.next_sequence) + 1
 	_update_projections(next, action, meaningful, event_type, int(record.occurred_at))
@@ -64,6 +72,14 @@ static func _update_projections(memory: Dictionary, action: String, meaningful: 
 		if favorite == null or int(memory.routine[action].meaningful_count) > int(memory.routine[favorite].meaningful_count): semantic.favorite_interaction = action
 	if event_type == "pet_stabilized": semantic.rescue_count = int(semantic.rescue_count) + 1
 	if event_type == "pet_became_critical": semantic.critical_count = int(semantic.critical_count) + 1
+	if event_type == "pet_heard_message":
+		var language: Dictionary = semantic.get("language", new_language_semantic()).duplicate(true)
+		language.message_count = int(language.message_count) + 1
+		var intent := String(memory.events[-1].details.get("intent", "OTHER")); language.intent_counts[intent] = int(language.intent_counts.get(intent, 0)) + 1
+		var topics: Array = memory.events[-1].details.get("topics", [])
+		for topic in topics: language.topic_counts[String(topic)] = int(language.topic_counts.get(String(topic), 0)) + 1
+		if String(memory.events[-1].details.get("memory_cue", "NONE")) == "RECOGNIZED_REPEAT": language.repeated_message_count = int(language.repeated_message_count) + 1
+		language.last_message_at = at; language.last_intent = intent; language.last_topics = topics.duplicate(true); semantic.language = language
 	memory.semantic = semantic
 
 static func _evict(memory: Dictionary, limit: int) -> void:
