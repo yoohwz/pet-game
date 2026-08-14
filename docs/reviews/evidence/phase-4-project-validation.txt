@@ -1,0 +1,7 @@
+Commands:
+godot --headless --path . --editor --quit
+godot --headless --path . --quit-after 1
+
+Result:
+Both commands exited 0. The editor scan registered DefaultSurvivalBalance,
+PetGameSession, DomainState, SimulationKernel, SaveMigrator and FoundationScreen.

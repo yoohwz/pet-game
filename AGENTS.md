@@ -4,7 +4,7 @@
 Keep dependencies `Presentation → Application → Domain`; Infrastructure is called by Application. Never introduce Domain → UI, filesystem, or network dependencies.
 
 ## Time and lifecycle
-Domain logic receives explicit timestamps/configuration and never reads a system clock. Schema v4 pets have AWAKE/SLEEPING activity; care commands are Application candidate transactions with durable care/sleep events and no survival/death consequences. Simulation event identity includes passive and care-balance semantics. Presentation keeps lifecycle controls stable across frames; reaction text is non-persistent. Foreground ticks are in-memory only, while autosave and lifecycle/debug boundaries persist explicitly.
+Domain logic receives explicit timestamps/configuration and never reads a system clock. Schema v5 pets have AWAKE/SLEEPING activity plus STABLE/CRITICAL survival state; care commands are Application candidate transactions with durable care/sleep events. Survival uses explicit passive, care and survival balance semantics; death is permanent and memorial/new-egg actions are explicit Application transactions. Presentation keeps lifecycle controls stable across frames; reaction text is non-persistent. Foreground ticks are in-memory only, while autosave and lifecycle/debug boundaries persist explicitly.
 
 ## Scope and dependencies
 Implement only the active phase. Prefer explicit state and small deterministic abstractions. Do not add third-party dependencies without an active-task justification.

@@ -8,6 +8,7 @@ const LocalSaveRepositoryScript = preload("res://infrastructure/persistence/loca
 const DefaultBalanceScript = preload("res://application/game_session/default_balance.gd")
 const DefaultLifecycleScript = preload("res://application/lifecycle/default_lifecycle.gd")
 const DefaultCareBalanceScript = preload("res://application/interaction/default_care_balance.gd")
+const DefaultSurvivalBalanceScript = preload("res://application/game_session/default_survival_balance.gd")
 
 var clock := ClockProviderScript.new()
 var profile: Dictionary = {}
@@ -18,6 +19,7 @@ var last_autosave_monotonic := 0.0
 var balance: Dictionary = {}
 var lifecycle: Dictionary = {}
 var care: Dictionary = {}
+var survival: Dictionary = {}
 var id_rng := RandomNumberGenerator.new()
 var persistence_write_count := 0 # Narrow observability seam for headless cadence tests.
 
@@ -25,6 +27,7 @@ func _ready() -> void:
 	balance = DefaultBalanceScript.load_balance()
 	lifecycle = DefaultLifecycleScript.load_config()
 	care = DefaultCareBalanceScript.load_config()
+	survival = DefaultSurvivalBalanceScript.load_config()
 	id_rng.randomize()
 	initialize_session(clock.wall_utc(), clock.monotonic_seconds())
 
@@ -51,7 +54,7 @@ func reconcile_to(current_wall_time: int, persist := true) -> Dictionary:
 
 func advance_in_memory_to(target_time: int) -> Dictionary:
 	var from_time := int(profile.get("simulation", {}).get("last_simulated_at", target_time))
-	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle, care)
+	var result := SimulationKernelScript.simulate(profile, from_time, target_time, balance, lifecycle, care, survival)
 	profile = result.new_state
 	_append_events(result.generated_events)
 	return result
@@ -100,7 +103,8 @@ func reset_debug_pet() -> void:
 
 func care_action(action: String, monotonic_now: float) -> Dictionary:
 	advance_active_to(monotonic_now)
-	if String(profile.get("active_subject", "")) != "PET" or String(profile.active_pet.life.get("life_state", "")) != "ALIVE": return {"ok":false,"reason":"NO_PET"}
+	if String(profile.get("active_subject", "")) != "PET": return {"ok":false,"reason":"NO_PET"}
+	if String(profile.active_pet.life.get("life_state", "")) == "DEAD": return {"ok":false,"reason":"PET_DEAD"}
 	var candidate: Dictionary = profile.duplicate(true)
 	var pet: Dictionary = candidate.active_pet
 	var activity := String(pet.activity.get("state", "AWAKE"))
@@ -119,10 +123,49 @@ func care_action(action: String, monotonic_now: float) -> Dictionary:
 		"wake": pet.activity = {"state":"AWAKE","sleep_started_at":null}; event_type="pet_woke"
 		_: return {"ok":false,"reason":"UNKNOWN_ACTION"}
 	if not key.is_empty(): pet.vitals[key] = clampf(float(pet.vitals[key]) + delta, 0, 100)
+	if String(pet.get("survival", {}).get("condition", "STABLE")) == "CRITICAL" and float(pet.vitals.hunger) > 0.0 and float(pet.vitals.hydration) > 0.0:
+		pet["survival"] = {"condition":"STABLE", "critical_started_at":null}
+		_append_event_to(candidate, _application_event("pet_stabilized", int(candidate.simulation.last_simulated_at), pet.identity.pet_id, {}))
 	candidate.active_pet = pet
 	_append_event_to(candidate, _application_event(event_type, int(candidate.simulation.last_simulated_at), pet.identity.pet_id, {}))
 	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
 	profile = candidate; last_autosave_monotonic = monotonic_now
+	return {"ok":true,"reason":""}
+
+func memorialize_pet(monotonic_now: float) -> Dictionary:
+	advance_active_to(monotonic_now)
+	if String(profile.get("active_subject", "")) != "PET" or String(profile.get("active_pet", {}).get("life", {}).get("life_state", "")) != "DEAD": return {"ok":false,"reason":"PET_NOT_DEAD"}
+	var candidate: Dictionary = profile.duplicate(true)
+	var pet: Dictionary = candidate.active_pet
+	var memorial_id := _new_durable_id("memorial")
+	var at := int(candidate.simulation.last_simulated_at)
+	var memorials: Array = candidate.get("memorials", []).duplicate(true)
+	memorials.append({"schema_version":1, "memorial_id":memorial_id, "memorialized_at":at, "pet_snapshot":pet.duplicate(true)})
+	candidate["memorials"] = memorials
+	# `memorial_count` includes legacy memorial history that predates durable
+	# snapshots, so it must not be recalculated from the snapshot array.
+	candidate["memorial_count"] = int(candidate.get("memorial_count", 0)) + 1
+	candidate["active_subject"] = "NONE"
+	candidate["active_pet"] = null
+	candidate["active_egg"] = null
+	_append_event_to(candidate, _application_event("pet_memorialized", at, pet.identity.pet_id, {"memorial_id":memorial_id}))
+	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
+	profile = candidate
+	last_autosave_monotonic = monotonic_now
+	return {"ok":true,"reason":""}
+
+func request_new_egg(monotonic_now: float) -> Dictionary:
+	if String(profile.get("active_subject", "")) != "NONE" or int(profile.get("memorial_count", 0)) <= 0 or profile.get("memorials", []).is_empty(): return {"ok":false,"reason":"NEW_EGG_UNAVAILABLE"}
+	var candidate: Dictionary = profile.duplicate(true)
+	var at := int(candidate.simulation.last_simulated_at)
+	_issue_initial_egg(candidate, at)
+	candidate.active_egg.state = "INCUBATING"
+	var recent: Array = candidate.get("recent_events", [])
+	if not recent.is_empty(): recent[recent.size() - 1].payload = {"source":"new_cycle"}
+	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
+	profile = candidate
+	reanchor(monotonic_now)
+	last_autosave_monotonic = monotonic_now
 	return {"ok":true,"reason":""}
 
 func touch_egg(wall_now: int) -> bool:
