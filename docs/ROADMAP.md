@@ -8,5 +8,5 @@
 6. Phase 5 — ACCEPTED / MERGED
 7. Phase 6 — ACCEPTED / MERGED
 8. Phase 7 — ACCEPTED / MERGED
-9. Phase 8 — TASK BRIEF LOCKED / IMPLEMENTATION NOT STARTED (Product Polish)
+9. Phase 8 — IMPLEMENTED CANDIDATE (Product Polish)
 10. Phase 9 — NOT STARTED (Optional Online)
