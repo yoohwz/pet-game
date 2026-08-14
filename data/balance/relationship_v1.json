@@ -1,0 +1,1 @@
+{"relationship_balance_version":1,"reward_cooldown_seconds":300,"rewards":{"feed":{"bond":1,"trust":2,"care_experience":1},"drink":{"bond":1,"trust":2,"care_experience":1},"wash":{"bond":1,"trust":1,"care_experience":1},"touch":{"bond":2,"trust":1,"care_experience":1},"play":{"bond":2,"trust":1,"care_experience":1}},"rescue":{"bond":3,"trust":5,"care_experience":3}}

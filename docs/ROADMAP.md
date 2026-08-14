@@ -4,9 +4,9 @@
 2. Phase 1 — ACCEPTED / MERGED
 3. Phase 2 — ACCEPTED / MERGED
 4. Phase 3 — ACCEPTED / MERGED
-5. Phase 4 — IMPLEMENTED CANDIDATE (Survival, Death & Memorial)
-6. Phase 5 — Memory & Relationship
-7. Phase 6 — Growth
-8. Phase 7 — Offline Language
-9. Phase 8 — Product Polish
-10. Phase 9 — Optional Online
+5. Phase 4 — ACCEPTED / MERGED
+6. Phase 5 — IMPLEMENTED CANDIDATE (Memory & Relationship)
+7. Phase 6 — NOT STARTED (Growth)
+8. Phase 7 — NOT STARTED (Offline Language)
+9. Phase 8 — NOT STARTED (Product Polish)
+10. Phase 9 — NOT STARTED (Optional Online)
