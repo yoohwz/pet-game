@@ -27,10 +27,16 @@ static func apply_reward(relationship: Dictionary, action: String, at: int, conf
 	var deltas := {"bond":0.0, "trust":0.0, "care_experience":0.0, "rewarded":false}
 	if not is_reward_eligible(next, action, at, config): return {"relationship":next, "deltas":deltas}
 	var reward: Dictionary = config.get("rewards", {}).get(action, {})
-	deltas.bond = float(reward.get("bond", 0.0)); deltas.trust = float(reward.get("trust", 0.0)); deltas.care_experience = float(reward.get("care_experience", 0.0)); deltas.rewarded = true
-	next.bond = clampf(float(next.bond) + deltas.bond, 0.0, 100.0)
-	next.trust = clampf(float(next.trust) + deltas.trust, 0.0, 100.0)
-	next.care_experience = maxf(0.0, float(next.care_experience) + deltas.care_experience)
+	var before_bond := float(next.bond)
+	var before_trust := float(next.trust)
+	var before_experience := float(next.care_experience)
+	next.bond = clampf(before_bond + float(reward.get("bond", 0.0)), 0.0, 100.0)
+	next.trust = clampf(before_trust + float(reward.get("trust", 0.0)), 0.0, 100.0)
+	next.care_experience = maxf(0.0, before_experience + float(reward.get("care_experience", 0.0)))
+	deltas.bond = float(next.bond) - before_bond
+	deltas.trust = float(next.trust) - before_trust
+	deltas.care_experience = float(next.care_experience) - before_experience
+	deltas.rewarded = true
 	next.last_rewarded_at[action] = at
 	next.relationship_balance_version = int(config.get("relationship_balance_version", 1))
 	return {"relationship":next, "deltas":deltas}
@@ -38,9 +44,12 @@ static func apply_reward(relationship: Dictionary, action: String, at: int, conf
 static func apply_rescue_bonus(relationship: Dictionary, config: Dictionary) -> Dictionary:
 	var next := normalize(relationship)
 	var reward: Dictionary = config.get("rescue", {})
-	var deltas := {"bond":float(reward.get("bond", 0.0)), "trust":float(reward.get("trust", 0.0)), "care_experience":float(reward.get("care_experience", 0.0))}
-	next.bond = clampf(float(next.bond) + deltas.bond, 0.0, 100.0)
-	next.trust = clampf(float(next.trust) + deltas.trust, 0.0, 100.0)
-	next.care_experience = maxf(0.0, float(next.care_experience) + deltas.care_experience)
+	var before_bond := float(next.bond)
+	var before_trust := float(next.trust)
+	var before_experience := float(next.care_experience)
+	next.bond = clampf(before_bond + float(reward.get("bond", 0.0)), 0.0, 100.0)
+	next.trust = clampf(before_trust + float(reward.get("trust", 0.0)), 0.0, 100.0)
+	next.care_experience = maxf(0.0, before_experience + float(reward.get("care_experience", 0.0)))
+	var deltas := {"bond":float(next.bond) - before_bond, "trust":float(next.trust) - before_trust, "care_experience":float(next.care_experience) - before_experience}
 	next.relationship_balance_version = int(config.get("relationship_balance_version", 1))
 	return {"relationship":next, "deltas":deltas}

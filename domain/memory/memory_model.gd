@@ -51,7 +51,9 @@ static func _filtered(memory: Dictionary, predicate: Callable) -> Array:
 
 static func _update_projections(memory: Dictionary, action: String, meaningful: bool, event_type: String, at: int) -> void:
 	var semantic: Dictionary = memory.semantic
-	if action in ROUTINE_ACTIONS:
+	# Survival/lifecycle records may include a causal action for audit, but only
+	# actual interaction events are routine occurrences.
+	if event_type in ["pet_fed", "pet_drank", "pet_washed", "pet_touched", "pet_played", "pet_sleep_started", "pet_woke"] and action in ROUTINE_ACTIONS:
 		var routine: Dictionary = memory.routine[action]
 		routine.count = int(routine.count) + 1; routine.last_at = at
 		if meaningful or action in ["sleep", "wake"]: routine.meaningful_count = int(routine.meaningful_count) + 1

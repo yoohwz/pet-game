@@ -3,4 +3,4 @@ godot --headless --path . --editor --quit
 godot --headless --path . --quit-after 1
 
 Result:
-Both commands exited 0.
+Both commands exited 0. Godot headless editor parsing and one-second project boot completed successfully.

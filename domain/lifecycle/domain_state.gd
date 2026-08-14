@@ -72,7 +72,7 @@ static func validate_pet(pet: Dictionary) -> bool:
 static func _validate_relationship(relationship_value: Variant) -> bool:
 	if not (relationship_value is Dictionary): return false
 	var relationship: Dictionary = relationship_value
-	if int(relationship.get("relationship_version", 0)) != 1 or int(relationship.get("relationship_balance_version", 0)) < 1: return false
+	if not (relationship.get("relationship_version") is int) or not (relationship.get("relationship_balance_version") is int) or int(relationship.get("relationship_version", 0)) != 1 or int(relationship.get("relationship_balance_version", 0)) < 1: return false
 	for key in ["bond", "trust", "care_experience"]:
 		if not (relationship.get(key) is int or relationship.get(key) is float): return false
 	if float(relationship.bond) < 0 or float(relationship.bond) > 100 or float(relationship.trust) < 0 or float(relationship.trust) > 100 or float(relationship.care_experience) < 0: return false
@@ -80,13 +80,13 @@ static func _validate_relationship(relationship_value: Variant) -> bool:
 	if not (rewarded is Dictionary): return false
 	for action in RelationshipModelScript.REWARD_ACTIONS:
 		var at = rewarded.get(action)
-		if at != null and not (at is int or at is float): return false
+		if at != null and not (at is int): return false
 	return true
 
 static func _validate_memory(memory_value: Variant) -> bool:
 	if not (memory_value is Dictionary): return false
 	var memory: Dictionary = memory_value
-	if int(memory.get("memory_version", 0)) != 1 or not (memory.get("next_sequence") is int or memory.get("next_sequence") is float) or int(memory.next_sequence) < 0: return false
+	if int(memory.get("memory_version", 0)) != 1 or not (memory.get("next_sequence") is int) or int(memory.next_sequence) < 0: return false
 	var events_value = memory.get("events")
 	if not (events_value is Array) or events_value.size() > 64: return false
 	var seen_memory := {}; var seen_source := {}; var previous := -1
@@ -95,19 +95,19 @@ static func _validate_memory(memory_value: Variant) -> bool:
 		var event: Dictionary = event_value
 		for key in ["memory_id", "source_event_id", "sequence", "event_type", "occurred_at", "category", "valence", "importance", "details"]:
 			if not event.has(key): return false
-		if String(event.memory_id).is_empty() or String(event.source_event_id).is_empty() or not (event.sequence is int or event.sequence is float) or int(event.sequence) < 0 or int(event.sequence) <= previous: return false
+		if not (event.memory_id is String) or String(event.memory_id).is_empty() or not (event.source_event_id is String) or String(event.source_event_id).is_empty() or not (event.sequence is int) or int(event.sequence) < 0 or int(event.sequence) <= previous: return false
 		if seen_memory.has(event.memory_id) or seen_source.has(event.source_event_id): return false
-		if String(event.category) not in ["CARE", "ROUTINE", "LIFECYCLE", "SURVIVAL"] or int(event.valence) not in [-1, 0, 1] or int(event.importance) < 0 or int(event.importance) > 4 or not (event.details is Dictionary): return false
+		if not (event.event_type is String) or String(event.event_type).is_empty() or not (event.occurred_at is int) or not (event.category is String) or String(event.category) not in ["CARE", "ROUTINE", "LIFECYCLE", "SURVIVAL"] or not (event.valence is int) or int(event.valence) not in [-1, 0, 1] or not (event.importance is int) or int(event.importance) < 0 or int(event.importance) > 4 or not (event.details is Dictionary): return false
 		seen_memory[event.memory_id] = true; seen_source[event.source_event_id] = true; previous = int(event.sequence)
 	if previous >= 0 and int(memory.next_sequence) <= previous: return false
 	var routine: Variant = memory.get("routine")
 	if not (routine is Dictionary): return false
 	for action in MemoryModelScript.ROUTINE_ACTIONS:
 		var item: Variant = routine.get(action)
-		if not (item is Dictionary) or int(item.get("count", -1)) < 0 or int(item.get("meaningful_count", -1)) < 0 or int(item.get("meaningful_count", 0)) > int(item.get("count", 0)): return false
-		if item.get("last_at") != null and not (item.get("last_at") is int or item.get("last_at") is float): return false
+		if not (item is Dictionary) or not (item.get("count") is int) or not (item.get("meaningful_count") is int) or int(item.get("count", -1)) < 0 or int(item.get("meaningful_count", -1)) < 0 or int(item.get("meaningful_count", 0)) > int(item.get("count", 0)): return false
+		if item.get("last_at") != null and not (item.get("last_at") is int): return false
 	var semantic: Variant = memory.get("semantic")
 	if not (semantic is Dictionary): return false
 	for key in ["care_interaction_count", "rescue_count", "critical_count"]:
-		if int(semantic.get(key, -1)) < 0: return false
+		if not (semantic.get(key) is int) or int(semantic.get(key, -1)) < 0: return false
 	return semantic.get("favorite_interaction") == null or String(semantic.get("favorite_interaction")) in MemoryModelScript.CARE_ACTIONS

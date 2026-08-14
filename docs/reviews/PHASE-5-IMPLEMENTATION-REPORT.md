@@ -31,3 +31,59 @@ Coverage includes Phase 0–4 regression plus relationship reward/cooldown/confi
 ## Architecture and scope
 
 Domain remains filesystem/clock/UI/network independent. No growth, language, AI, inventory, online systems, or personality mutation was added.
+
+## Acceptance Review Corrective Pass 1
+
+Previous verdict: **REWORK REQUIRED**
+
+Pre-correction review HEAD: `2c07ba0bebf484b28c6ada79755df52bc41ffbe9`
+
+### Production Fix 1 — Actual relationship deltas
+
+Base reward actual deltas: PASS
+Rescue actual deltas: PASS
+Care event delta honesty: PASS
+Memory delta honesty: PASS
+
+Relationship rewards now calculate each delta from the post-clamp state. The same calculation applies to the independent rescue bonus, so event and projected-memory details cannot claim an amount that was not applied.
+
+### Production Fix 2 — Rescue routine projection
+
+Care routine count: PASS
+`pet_stabilized` routine duplication: RESOLVED
+Rescue semantic count: PASS
+
+Only real interaction events update routine projections. A stabilization record retains its causal action for audit but is strictly a survival projection.
+
+### Production Fix 3 — Memory validation
+
+Integer sequence: PASS
+Integer next_sequence: PASS
+Record type validation: PASS
+Full malformed-state matrix: PASS
+
+JSON whole numbers are normalized at the persistence migration boundary; direct domain validation rejects fractional integer fields and malformed memory records.
+
+### Acceptance completion
+
+Relationship action/cooldown/clamp/runtime-version/rescue matrix: PASS
+Memory care/routine/views/deduplication/eviction matrix: PASS
+General care and rescue candidate failure authority: PASS
+v5 active pet, egg/HATCHING, and memorial migration/no-backfill: PASS
+Memorial preservation/new-pet isolation: PASS
+Inspector required fields, action-time stability, and read-only refresh: PASS
+
+### Tests
+
+`godot --headless --path . -s res://tests/test_runner.gd`
+**589 passed, 0 failed**
+
+### Project Validation
+
+PASS
+
+### Regression / architecture / scope
+
+Phase 0–4: PASS
+Architecture: PASS
+Scope: PASS

@@ -6,7 +6,7 @@ const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 
 static func migrate(data: Dictionary) -> Dictionary:
 	var version := int(data.get("schema_version", 0))
-	if version == 6: return data
+	if version == 6: return _normalize_v6_integer_memory_fields(data)
 	if version == 5:
 		var v6: Dictionary = data.duplicate(true); v6["schema_version"] = 6
 		if v6.get("active_pet") is Dictionary: v6["active_pet"] = _migrate_pet(v6.active_pet)
@@ -59,3 +59,59 @@ static func _migrate_pet(pet: Dictionary) -> Dictionary:
 	next["relationship"] = RelationshipModelScript.normalize(next.get("relationship", {}))
 	next["memory"] = MemoryModelScript.new_memory()
 	return next
+
+# Godot's JSON parser represents numeric literals as floats. These fields are
+# contractually integers, so canonicalize only exact whole values before domain
+# validation. Fractional external data remains fractional and is rejected.
+static func _normalize_v6_integer_memory_fields(data: Dictionary) -> Dictionary:
+	var next: Dictionary = data.duplicate(true)
+	if next.get("active_pet") is Dictionary:
+		next["active_pet"] = _normalize_pet_memory_numbers(next.active_pet)
+	var memorials: Array = []
+	for memorial_value in next.get("memorials", []):
+		var memorial: Dictionary = memorial_value.duplicate(true)
+		if memorial.get("pet_snapshot") is Dictionary:
+			memorial["pet_snapshot"] = _normalize_pet_memory_numbers(memorial.pet_snapshot)
+		memorials.append(memorial)
+	next["memorials"] = memorials
+	return next
+
+static func _normalize_pet_memory_numbers(pet: Dictionary) -> Dictionary:
+	var next: Dictionary = pet.duplicate(true)
+	if next.get("relationship") is Dictionary:
+		var relationship: Dictionary = next.relationship.duplicate(true)
+		for key in ["relationship_version", "relationship_balance_version"]:
+			relationship[key] = _whole_int_or_original(relationship.get(key))
+		var last_rewarded: Dictionary = relationship.get("last_rewarded_at", {}).duplicate(true)
+		for action in last_rewarded.keys():
+			if last_rewarded[action] != null: last_rewarded[action] = _whole_int_or_original(last_rewarded[action])
+		relationship["last_rewarded_at"] = last_rewarded
+		next["relationship"] = relationship
+	if not (next.get("memory") is Dictionary): return next
+	var memory: Dictionary = next.memory.duplicate(true)
+	memory["next_sequence"] = _whole_int_or_original(memory.get("next_sequence"))
+	var events: Array = []
+	for event_value in memory.get("events", []):
+		var event: Dictionary = event_value.duplicate(true)
+		for key in ["sequence", "occurred_at", "valence", "importance"]:
+			event[key] = _whole_int_or_original(event.get(key))
+		events.append(event)
+	memory["events"] = events
+	var routine: Dictionary = memory.get("routine", {}).duplicate(true)
+	for action in routine.keys():
+		if not (routine[action] is Dictionary): continue
+		var item: Dictionary = routine[action].duplicate(true)
+		for key in ["count", "meaningful_count", "last_at"]:
+			if item.get(key) != null: item[key] = _whole_int_or_original(item.get(key))
+		routine[action] = item
+	memory["routine"] = routine
+	var semantic: Dictionary = memory.get("semantic", {}).duplicate(true)
+	for key in ["care_interaction_count", "rescue_count", "critical_count"]:
+		semantic[key] = _whole_int_or_original(semantic.get(key))
+	memory["semantic"] = semantic
+	next["memory"] = memory
+	return next
+
+static func _whole_int_or_original(value: Variant) -> Variant:
+	if value is float and is_equal_approx(value, floor(value)): return int(value)
+	return value

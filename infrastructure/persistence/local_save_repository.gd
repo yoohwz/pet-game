@@ -16,7 +16,7 @@ static func save_profile(profile: Dictionary) -> bool:
 	if not DomainStateScript.validate_profile(profile): return false
 	var serialized := JSON.stringify(profile, "\t")
 	var parsed = JSON.parse_string(serialized)
-	if not (parsed is Dictionary) or not DomainStateScript.validate_profile(parsed): return false
+	if not (parsed is Dictionary) or not DomainStateScript.validate_profile(SaveMigratorScript.migrate(parsed)): return false
 	if DirAccess.make_dir_recursive_absolute("user://backup") != OK: return false
 	if FileAccess.file_exists(TEMP_PATH) and DirAccess.remove_absolute(TEMP_PATH) != OK: return false
 	var temp := FileAccess.open(TEMP_PATH, FileAccess.WRITE)
