@@ -123,9 +123,19 @@ func refresh_inspector() -> void:
 	var identity: Dictionary = pet.get("identity", {})
 	var life: Dictionary = pet.get("life", {})
 	var vitals: Dictionary = pet.get("vitals", {})
+	var memorial_text := ""
+	if String(p.get("active_subject", "NONE")) == "NONE" and int(p.get("memorial_count", 0)) > 0:
+		var memorials: Array = p.get("memorials", [])
+		if not memorials.is_empty():
+			var snapshot: Dictionary = memorials[-1].get("pet_snapshot", {})
+			var snapshot_identity: Dictionary = snapshot.get("identity", {})
+			var snapshot_life: Dictionary = snapshot.get("life", {})
+			memorial_text = "\n\nMemorial\nName: %s\nBorn At: %s\nDied At: %s\nDeath Cause: %s" % [snapshot_identity.get("name", "n/a"), snapshot_identity.get("born_at", "n/a"), snapshot_life.get("died_at", "n/a"), snapshot_life.get("death_cause", "n/a")]
+		else:
+			memorial_text = "\n\nMemorial\nHistorical memorials: %s" % p.get("memorial_count", 0)
 	var recent := "\n\nRecent domain events:"
 	for event in p.get("recent_events", []): recent += "\n• %s @ %s" % [event.get("event_type"), event.get("occurred_at")]
-	inspector.text = "Active Subject: %s\nSchema Version: %s\nCurrent UTC: %s\nLast Simulated UTC: %s\nClock anomalies: %s\n\nPet ID: %s\nBorn At: %s\nLife state: %s\nGrowth stage: %s\nHunger: %s\nHydration: %s\nEnergy: %s\nHygiene: %s\nMood: %s\nHealth: %s%s" % [p.get("active_subject", "NONE"), p.get("schema_version", "?"), _session().clock.wall_utc(), s.get("last_simulated_at", "?"), s.get("clock_anomaly_count", 0), identity.get("pet_id", "No active pet"), identity.get("born_at", "n/a"), life.get("life_state", "n/a"), life.get("growth_stage", "n/a"), vitals.get("hunger", "n/a"), vitals.get("hydration", "n/a"), vitals.get("energy", "n/a"), vitals.get("hygiene", "n/a"), vitals.get("mood", "n/a"), vitals.get("health", "n/a"), recent]
+	inspector.text = "Active Subject: %s\nSchema Version: %s\nCurrent UTC: %s\nLast Simulated UTC: %s\nClock anomalies: %s\n\nPet ID: %s\nName: %s\nBorn At: %s\nLife state: %s\nGrowth stage: %s\nDied At: %s\nDeath Cause: %s\nHunger: %s\nHydration: %s\nEnergy: %s\nHygiene: %s\nMood: %s\nHealth: %s%s%s" % [p.get("active_subject", "NONE"), p.get("schema_version", "?"), _session().clock.wall_utc(), s.get("last_simulated_at", "?"), s.get("clock_anomaly_count", 0), identity.get("pet_id", "No active pet"), identity.get("name", "n/a"), identity.get("born_at", "n/a"), life.get("life_state", "n/a"), life.get("growth_stage", "n/a"), life.get("died_at", "n/a"), life.get("death_cause", "n/a"), vitals.get("hunger", "n/a"), vitals.get("hydration", "n/a"), vitals.get("energy", "n/a"), vitals.get("hygiene", "n/a"), vitals.get("mood", "n/a"), vitals.get("health", "n/a"), memorial_text, recent]
 
 func _add_button(text: String, callback: Callable) -> void:
 	var button := Button.new()

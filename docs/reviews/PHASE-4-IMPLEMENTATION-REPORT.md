@@ -30,7 +30,7 @@ v4 profiles migrate to v5 with `survival_balance_version = 1`, a stable survival
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
 
-Result: **250 passed, 0 failed**.
+Result: **291 passed, 0 failed**.
 
 Coverage includes Phase 0–3 regression, protection, zero-need boundary timing, damage rates, deterministic critical/death timestamps, offline death, death freezing, rescue, dead-care rejection, memorial persistence failure safety, explicit new egg and v4→v5 migration/validation.
 
@@ -39,3 +39,13 @@ Coverage includes Phase 0–3 regression, protection, zero-need boundary timing,
 Domain → filesystem/clock/UI/network: NO.
 
 Phase 4 adds no growth, memory, relationship learning, inventory, online features, revival, or final art.
+
+## Acceptance Review Corrective Pass
+
+Previous verdict: `REWORK REQUIRED`
+
+Pre-correction review HEAD: `1ffd73a755284b97973416f8e46c883df57bb4e4`
+
+- Memorial bookkeeping preserves legacy history: `memorial_count` is incremented independently from durable snapshot count.
+- DEAD UI displays name, birth, death time and death cause; MEMORIAL UI reads its latest durable snapshot and handles historical count-only states safely.
+- The acceptance matrix now covers causes, chunking, critical event uniqueness/order, partial rescue, permanent death, migration, survival version semantics, candidate failures and stable UI transitions.

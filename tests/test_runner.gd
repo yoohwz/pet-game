@@ -426,6 +426,63 @@ func _run() -> void:
 	eq(offline_death_session.profile.active_pet.life.life_state, "DEAD", "offline reconciliation produces dead pet")
 	eq(offline_death_session.profile.active_pet.life.died_at, 8200, "offline death keeps deterministic earlier timestamp")
 	eq(LocalSaveRepositoryScript.load_profile().active_pet.life.life_state, "DEAD", "offline death reconciliation persists")
+	# Phase 4 corrective pass: complete survival, memorial and presentation acceptance coverage.
+	var combined := fixture(); combined.active_pet.life.newborn_protection_until = 0; combined.active_pet.vitals.hunger = 0.0; combined.active_pet.vitals.hydration = 0.0
+	approx(SimulationKernelScript.simulate(combined, 1000, 19000, BALANCE, {}, {}, SURVIVAL).new_state.active_pet.vitals.health, 70.0, "combined non-lethal deprivation loses six health per hour")
+	var starvation := fixture(); starvation.active_pet.life.newborn_protection_until = 0; starvation.active_pet.vitals.hunger = 0.0; starvation.active_pet.vitals.hydration = 100.0; starvation.active_pet.vitals.health = 4.0
+	var starvation_result: Dictionary = SimulationKernelScript.simulate(starvation, 1000, 10000, BALANCE, {}, {}, SURVIVAL)
+	eq(starvation_result.new_state.active_pet.life.death_cause, "STARVATION", "hunger-only deprivation has starvation cause")
+	eq(starvation_result.new_state.active_pet.life.died_at, 8200, "starvation death timestamp is deterministic")
+	var dehydration := fixture(); dehydration.active_pet.life.newborn_protection_until = 0; dehydration.active_pet.vitals.hunger = 100.0; dehydration.active_pet.vitals.hydration = 0.0; dehydration.active_pet.vitals.health = 4.0
+	var dehydration_result: Dictionary = SimulationKernelScript.simulate(dehydration, 1000, 6000, BALANCE, {}, {}, SURVIVAL)
+	eq(dehydration_result.new_state.active_pet.life.death_cause, "DEHYDRATION", "hydration-only deprivation has dehydration cause")
+	var death_chunk: Dictionary = SimulationKernelScript.simulate(death, 1000, 4600, BALANCE, {}, {}, SURVIVAL).new_state
+	death_chunk = SimulationKernelScript.simulate(death_chunk, 4600, 8200, BALANCE, {}, {}, SURVIVAL).new_state
+	for key in ["life_state", "died_at", "death_cause"]: eq(death_chunk.active_pet.life[key], dead_result.new_state.active_pet.life[key], "death chunking preserves " + key)
+	for key in ["hunger", "hydration", "energy", "hygiene", "health"]: approx(death_chunk.active_pet.vitals[key], dead_result.new_state.active_pet.vitals[key], "death chunking preserves " + key)
+	var critical_repeat: Dictionary = SimulationKernelScript.simulate(critical_one.new_state, 11000, 12000, BALANCE, {}, {}, SURVIVAL)
+	ok(not _has_event(critical_repeat.generated_events, "pet_became_critical"), "critical event is emitted exactly once")
+	eq(critical_repeat.new_state.active_pet.survival.critical_started_at, 10000, "critical timestamp remains unchanged")
+	var partial_session = PetGameSessionScript.new(); partial_session.balance = BALANCE; partial_session.lifecycle = care_session.lifecycle; partial_session.care = care_session.care; partial_session.survival = SURVIVAL; partial_session.profile = fixture(); partial_session.profile.active_pet.life.newborn_protection_until = 0; partial_session.profile.active_pet.vitals.hunger = 0.0; partial_session.profile.active_pet.vitals.hydration = 0.0; partial_session.profile.active_pet.vitals.health = 20.0; partial_session.profile.active_pet.survival = {"condition":"CRITICAL","critical_started_at":1000}; partial_session.reanchor(10.0)
+	var health_before_rescue: float = partial_session.profile.active_pet.vitals.health
+	ok(partial_session.care_action("feed", 10.0).ok, "partial rescue feed succeeds")
+	eq(partial_session.profile.active_pet.survival.condition, "CRITICAL", "feed alone does not clear combined critical danger")
+	ok(not _has_event(partial_session.profile.recent_events, "pet_stabilized"), "partial rescue emits no stabilized event")
+	ok(partial_session.care_action("drink", 10.0).ok, "complete rescue drink succeeds")
+	eq(partial_session.profile.active_pet.survival.condition, "STABLE", "both restored needs stabilize pet")
+	eq(partial_session.profile.active_pet.survival.critical_started_at, null, "complete rescue clears critical timestamp")
+	eq(partial_session.profile.active_pet.vitals.health, health_before_rescue, "rescue does not restore health")
+	# Runtime survival config governs both math and deterministic event identity without mutating persisted governance.
+	var survival_mismatch := fixture(); survival_mismatch.active_pet.life.newborn_protection_until = 0; survival_mismatch.active_pet.vitals.hunger = 0.0; survival_mismatch.simulation.survival_balance_version = 1
+	var survival_v2 := SURVIVAL.duplicate(true); survival_v2.survival_balance_version = 2; survival_v2.hunger_zero_health_loss_per_hour = 4.0
+	var survival_one: Dictionary = SimulationKernelScript.simulate(survival_mismatch, 1000, 4600, BALANCE, {}, {}, SURVIVAL)
+	var survival_two: Dictionary = SimulationKernelScript.simulate(survival_mismatch, 1000, 4600, BALANCE, {}, {}, survival_v2)
+	approx(survival_two.new_state.active_pet.vitals.health, 96.0, "runtime survival v2 changes health math")
+	ok(survival_two.generated_events[-1].event_id.contains(":s2:"), "runtime survival v2 event identity is honest")
+	ok(survival_one.generated_events[-1].event_id != survival_two.generated_events[-1].event_id, "survival v1 and v2 ids differ")
+	eq(survival_two.new_state.simulation.survival_balance_version, 1, "pure simulation preserves persisted survival version")
+	# Historical memorial counts may exceed persisted snapshot count and are never lost.
+	var legacy_memorial = dead_result.new_state.duplicate(true); legacy_memorial.memorial_count = 3; legacy_memorial.memorials = []
+	var legacy_session = PetGameSessionScript.new(); legacy_session.balance = BALANCE; legacy_session.lifecycle = care_session.lifecycle; legacy_session.care = care_session.care; legacy_session.survival = SURVIVAL; legacy_session.profile = legacy_memorial; legacy_session.reanchor(10.0)
+	ok(legacy_session.memorialize_pet(10.0).ok, "legacy memorial profile can memorialize")
+	eq(legacy_session.profile.memorial_count, 4, "historical memorial count increments independently")
+	eq(legacy_session.profile.memorials.size(), 1, "new memorial snapshot is retained beside historical count")
+	var failed_egg = PetGameSessionScript.new(); failed_egg.balance = BALANCE; failed_egg.lifecycle = care_session.lifecycle; failed_egg.care = care_session.care; failed_egg.survival = SURVIVAL; failed_egg.profile = legacy_session.profile.duplicate(true); failed_egg.reanchor(10.0)
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
+	eq(failed_egg.request_new_egg(10.0).reason, "PERSIST_FAILED", "new egg persistence failure is reported")
+	eq(failed_egg.profile.active_subject, "NONE", "failed new egg retains memorial state")
+	eq(failed_egg.profile.memorial_count, 4, "failed new egg preserves historical memorial count")
+	# DEAD and memorial presentation reads current/deep snapshot data and keeps controls stable.
+	var death_ui_session = PetGameSessionScript.new(); death_ui_session.balance = BALANCE; death_ui_session.lifecycle = care_session.lifecycle; death_ui_session.care = care_session.care; death_ui_session.survival = SURVIVAL; death_ui_session.profile = dead_result.new_state.duplicate(true); death_ui_session.reanchor(10.0)
+	var death_screen = FoundationScreenScript.new(); death_screen.session_override = death_ui_session; death_screen._ready()
+	ok(death_screen.has_lifecycle_button("Memorialize Pet") and not death_screen.has_lifecycle_button("Feed"), "dead UI shows memorial only")
+	ok(death_screen.inspector.text.contains("Name: Test") and death_screen.inspector.text.contains("Died At: 8200") and death_screen.inspector.text.contains("Death Cause: COMBINED_DEPRIVATION"), "dead UI displays death information")
+	var memorial_button := death_screen.lifecycle_button("Memorialize Pet"); var dead_rebuilds: int = death_screen.lifecycle_rebuild_count; death_screen.refresh(); eq(death_screen.lifecycle_button("Memorialize Pet"), memorial_button, "dead memorial button stable"); eq(death_screen.lifecycle_rebuild_count, dead_rebuilds, "dead UI does not rebuild")
+	ok(death_ui_session.memorialize_pet(10.0).ok, "UI fixture memorialization succeeds"); death_screen.refresh()
+	ok(death_screen.has_lifecycle_button("New Egg") and death_screen.inspector.text.contains("Memorial") and death_screen.inspector.text.contains("Name: Test"), "memorial UI displays latest snapshot")
+	var new_egg_button := death_screen.lifecycle_button("New Egg"); var memorial_rebuilds: int = death_screen.lifecycle_rebuild_count; death_screen.refresh(); eq(death_screen.lifecycle_button("New Egg"), new_egg_button, "new egg button stable"); eq(death_screen.lifecycle_rebuild_count, memorial_rebuilds, "memorial UI does not rebuild")
+	ok(death_ui_session.request_new_egg(10.0).ok, "UI fixture creates explicit new egg"); death_screen.refresh(); ok(death_screen.has_lifecycle_button("Touch Egg") and not death_screen.has_lifecycle_button("New Egg"), "new egg UI returns to incubation controls")
+	death_screen.free(); death_ui_session.free(); failed_egg.free(); legacy_session.free(); partial_session.free()
 	offline_death_session.free(); failed_memorial.free(); dead_session.free(); rescue_session.free()
 	care_screen.free(); care_ui_session.free(); clamp_session.free(); migrated_hatch_session.free()
 	for value in [fail_care, sleep_startup, timeline]: value.free()

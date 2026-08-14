@@ -142,7 +142,9 @@ func memorialize_pet(monotonic_now: float) -> Dictionary:
 	var memorials: Array = candidate.get("memorials", []).duplicate(true)
 	memorials.append({"schema_version":1, "memorial_id":memorial_id, "memorialized_at":at, "pet_snapshot":pet.duplicate(true)})
 	candidate["memorials"] = memorials
-	candidate["memorial_count"] = memorials.size()
+	# `memorial_count` includes legacy memorial history that predates durable
+	# snapshots, so it must not be recalculated from the snapshot array.
+	candidate["memorial_count"] = int(candidate.get("memorial_count", 0)) + 1
 	candidate["active_subject"] = "NONE"
 	candidate["active_pet"] = null
 	candidate["active_egg"] = null
