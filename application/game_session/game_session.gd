@@ -9,6 +9,10 @@ const DefaultBalanceScript = preload("res://application/game_session/default_bal
 const DefaultLifecycleScript = preload("res://application/lifecycle/default_lifecycle.gd")
 const DefaultCareBalanceScript = preload("res://application/interaction/default_care_balance.gd")
 const DefaultSurvivalBalanceScript = preload("res://application/game_session/default_survival_balance.gd")
+const DefaultRelationshipBalanceScript = preload("res://application/relationship/default_relationship_balance.gd")
+const DefaultMemoryConfigScript = preload("res://application/memory/default_memory_config.gd")
+const RelationshipModelScript = preload("res://domain/relationship/relationship_model.gd")
+const MemoryModelScript = preload("res://domain/memory/memory_model.gd")
 
 var clock := ClockProviderScript.new()
 var profile: Dictionary = {}
@@ -20,6 +24,8 @@ var balance: Dictionary = {}
 var lifecycle: Dictionary = {}
 var care: Dictionary = {}
 var survival: Dictionary = {}
+var relationship_balance: Dictionary = {}
+var memory_config: Dictionary = {}
 var id_rng := RandomNumberGenerator.new()
 var persistence_write_count := 0 # Narrow observability seam for headless cadence tests.
 
@@ -28,6 +34,8 @@ func _ready() -> void:
 	lifecycle = DefaultLifecycleScript.load_config()
 	care = DefaultCareBalanceScript.load_config()
 	survival = DefaultSurvivalBalanceScript.load_config()
+	relationship_balance = DefaultRelationshipBalanceScript.load_config()
+	memory_config = DefaultMemoryConfigScript.load_config()
 	id_rng.randomize()
 	initialize_session(clock.wall_utc(), clock.monotonic_seconds())
 
@@ -107,6 +115,7 @@ func care_action(action: String, monotonic_now: float) -> Dictionary:
 	if String(profile.active_pet.life.get("life_state", "")) == "DEAD": return {"ok":false,"reason":"PET_DEAD"}
 	var candidate: Dictionary = profile.duplicate(true)
 	var pet: Dictionary = candidate.active_pet
+	var before_vitals: Dictionary = pet.vitals.duplicate(true)
 	var activity := String(pet.activity.get("state", "AWAKE"))
 	if action != "wake" and activity == "SLEEPING": return {"ok":false,"reason":"PET_SLEEPING"}
 	if action == "wake" and activity != "SLEEPING": return {"ok":false,"reason":"NOT_SLEEPING"}
@@ -123,11 +132,26 @@ func care_action(action: String, monotonic_now: float) -> Dictionary:
 		"wake": pet.activity = {"state":"AWAKE","sleep_started_at":null}; event_type="pet_woke"
 		_: return {"ok":false,"reason":"UNKNOWN_ACTION"}
 	if not key.is_empty(): pet.vitals[key] = clampf(float(pet.vitals[key]) + delta, 0, 100)
-	if String(pet.get("survival", {}).get("condition", "STABLE")) == "CRITICAL" and float(pet.vitals.hunger) > 0.0 and float(pet.vitals.hydration) > 0.0:
-		pet["survival"] = {"condition":"STABLE", "critical_started_at":null}
-		_append_event_to(candidate, _application_event("pet_stabilized", int(candidate.simulation.last_simulated_at), pet.identity.pet_id, {}))
+	var meaningful := action in ["touch", "play"] or (not key.is_empty() and float(pet.vitals[key]) > float(before_vitals.get(key, pet.vitals[key])))
+	var at := int(candidate.simulation.last_simulated_at)
+	var relationship_result := {"relationship":RelationshipModelScript.normalize(pet.get("relationship", {})), "deltas":{"bond":0.0,"trust":0.0,"care_experience":0.0,"rewarded":false}}
+	if meaningful and action in RelationshipModelScript.REWARD_ACTIONS:
+		relationship_result = RelationshipModelScript.apply_reward(pet.get("relationship", {}), action, at, relationship_balance)
+	pet["relationship"] = relationship_result.relationship
 	candidate.active_pet = pet
-	_append_event_to(candidate, _application_event(event_type, int(candidate.simulation.last_simulated_at), pet.identity.pet_id, {}))
+	var details := {"action":action, "meaningful":meaningful, "relationship_rewarded":bool(relationship_result.deltas.rewarded), "relationship_balance_version":int(relationship_balance.get("relationship_balance_version", 1)), "bond_delta":float(relationship_result.deltas.bond), "trust_delta":float(relationship_result.deltas.trust), "care_experience_delta":float(relationship_result.deltas.care_experience)}
+	var primary_event := _application_event(event_type, at, pet.identity.pet_id, details)
+	_append_event_to(candidate, primary_event)
+	_project_pet_event(candidate, primary_event)
+	pet = candidate.active_pet
+	if String(pet.get("survival", {}).get("condition", "STABLE")) == "CRITICAL" and float(pet.vitals.hunger) > 0.0 and float(pet.vitals.hydration) > 0.0:
+		var rescue := RelationshipModelScript.apply_rescue_bonus(pet.get("relationship", {}), relationship_balance)
+		pet["survival"] = {"condition":"STABLE", "critical_started_at":null}
+		pet["relationship"] = rescue.relationship
+		candidate.active_pet = pet
+		var stabilized := _application_event("pet_stabilized", at, pet.identity.pet_id, {"action":action, "bond_delta":float(rescue.deltas.bond), "trust_delta":float(rescue.deltas.trust), "care_experience_delta":float(rescue.deltas.care_experience), "relationship_balance_version":int(relationship_balance.get("relationship_balance_version", 1))})
+		_append_event_to(candidate, stabilized)
+		_project_pet_event(candidate, stabilized)
 	if not save_candidate(candidate): return {"ok":false,"reason":"PERSIST_FAILED"}
 	profile = candidate; last_autosave_monotonic = monotonic_now
 	return {"ok":true,"reason":""}
@@ -209,7 +233,9 @@ func complete_hatching(wall_now: int, monotonic_now: float) -> bool:
 	candidate["active_egg"] = null
 	candidate["active_pet"] = pet
 	candidate.simulation.last_simulated_at = born_at
-	_append_event_to(candidate, _application_event("pet_hatched", born_at, pet.identity.pet_id, {"egg_id": egg.egg_id, "born_at": born_at}))
+	var hatch_event := _application_event("pet_hatched", born_at, pet.identity.pet_id, {"egg_id": egg.egg_id, "born_at": born_at})
+	_append_event_to(candidate, hatch_event)
+	_project_pet_event(candidate, hatch_event)
 	if not save_candidate(candidate): return false
 	profile = candidate
 	reanchor(monotonic_now)
@@ -241,7 +267,9 @@ func _notification(what: int) -> void:
 
 func _append_events(events: Array) -> void:
 	var recent: Array = profile.get("recent_events", [])
-	for event in events: recent.append(event)
+	for event in events:
+		recent.append(event)
+		_project_pet_event(profile, event)
 	while recent.size() > 10: recent.pop_front()
 	profile["recent_events"] = recent
 
@@ -250,6 +278,13 @@ func _append_event_to(target: Dictionary, event: Dictionary) -> void:
 	recent.append(event)
 	while recent.size() > 10: recent.pop_front()
 	target["recent_events"] = recent
+
+func _project_pet_event(target: Dictionary, event: Dictionary) -> void:
+	if String(target.get("active_subject", "")) != "PET" or not (target.get("active_pet") is Dictionary): return
+	var pet: Dictionary = target.active_pet
+	if String(event.get("subject_id", "")) != String(pet.get("identity", {}).get("pet_id", "")): return
+	pet["memory"] = MemoryModelScript.project(pet.get("memory", MemoryModelScript.new_memory()), event, memory_config)
+	target["active_pet"] = pet
 
 func _issue_initial_egg(target: Dictionary, wall_now: int) -> void:
 	target["initial_egg_issued"] = true
