@@ -1,6 +1,6 @@
 # Language Contract
 
-Schema v8 adds Language v1 through the local `data/language/language_rules_v1.json` ruleset. Pure Domain normalization trims, lowercases, turns supported punctuation into spaces, collapses whitespace, and preserves Unicode/Vietnamese text. It deterministically returns one canonical intent, ordered topics, integer sentiment, non-verbal reaction key, and a memory cue.
+Schema v8 adds **English-only** Language v1 through the local `data/language/language_rules_v1.json` ruleset. Pure Domain normalization trims, lowercases, turns supported punctuation/tabs/newlines/carriage returns into spaces, collapses whitespace, and preserves Unicode text. Rules use complete tokens and contiguous complete-token phrases, never substrings inside unrelated words. It deterministically returns one canonical intent, ordered topics, integer sentiment, non-verbal reaction key, and a memory cue.
 
 `speak_to_pet(text, monotonic_now)` is an Application candidate transaction for an ALIVE/AWAKE pet. It first advances active simulated time, rejects `NO_PET`, `PET_DEAD`, `PET_SLEEPING`, empty input, and messages longer than 256 characters, then persists exactly one schema-v1 `pet_heard_message` on success. The payload preserves original text and records normalized text, intent, topics, sentiment, reaction, cue, and language/rules versions.
 

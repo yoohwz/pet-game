@@ -1,6 +1,6 @@
 # Phase 7 Task Brief — Offline Language Understanding
 
-Status: **LOCKED FOR CODEX DISCOVERY / IMPLEMENTATION NOT STARTED**
+Status: **IMPLEMENTED CANDIDATE — ENGLISH-ONLY V1**
 
 Repository: `yoohwz/pet-game`
 
@@ -21,7 +21,7 @@ Phase 7 must make the pet feel as if it listens and remembers without introducin
 - Memory becomes **v2** because it gains a `LANGUAGE` category and persistent language semantic projections.
 - Language model/version is **v1**; language rules version is **v1**.
 - Phase 7 uses a deterministic rules/lexicon engine only. **No local LLM, remote API, embedding model, vector database, ML inference, or model asset is allowed in Phase 7.**
-- V1 rules support basic **English and Vietnamese** phrase/token lexicons in one local config. No statistical language detection is required. Vietnamese diacritics are preserved; common accentless variants may be supplied explicitly in the rules file.
+- V1 rules support **English only** phrase/token lexicons in one local config. Additional languages, translation infrastructure and language detection are out of scope.
 - The pet never emits generated dialogue. Presentation may show a short developer reaction label/key, but it is not pet speech.
 - Language interactions do not change bond, trust, care experience, vitals, survival, growth, personality, activity, or lifecycle state.
 
@@ -63,7 +63,7 @@ Pure Domain normalization must:
 3. lowercase deterministically;
 4. normalize supported punctuation to spaces for phrase/token matching;
 5. collapse repeated whitespace;
-6. preserve Unicode letters and Vietnamese diacritics;
+6. preserve Unicode letters;
 7. never call locale/network/system services.
 
 Do not silently truncate. Empty/whitespace-only input is rejected. Input longer than `max_input_chars` is rejected.
@@ -361,7 +361,6 @@ At minimum cover:
 ### Normalization/classification
 - trim/lower/whitespace/punctuation normalization;
 - English examples for every intent;
-- Vietnamese examples for every intent;
 - `QUESTION` fallback;
 - `OTHER` fallback;
 - deterministic multi-match priority;

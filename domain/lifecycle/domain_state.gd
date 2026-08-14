@@ -102,7 +102,8 @@ static func _validate_memory(memory_value: Variant) -> bool:
 		if not (event.memory_id is String) or String(event.memory_id).is_empty() or not (event.source_event_id is String) or String(event.source_event_id).is_empty() or not (event.sequence is int) or int(event.sequence) < 0 or int(event.sequence) <= previous: return false
 		if seen_memory.has(event.memory_id) or seen_source.has(event.source_event_id): return false
 		if not (event.event_type is String) or String(event.event_type).is_empty() or not (event.occurred_at is int) or not (event.category is String) or String(event.category) not in ["CARE", "ROUTINE", "LIFECYCLE", "SURVIVAL", "LANGUAGE"] or not (event.valence is int) or int(event.valence) not in [-1, 0, 1] or not (event.importance is int) or int(event.importance) < 0 or int(event.importance) > 4 or not (event.details is Dictionary): return false
-		if String(event.event_type) == "pet_heard_message" and not _validate_language_payload(event.details): return false
+		if String(event.event_type) == "pet_heard_message":
+			if String(event.category) != "LANGUAGE" or int(event.importance) != 1 or int(event.valence) != int(event.details.get("sentiment", 99)) or not _validate_language_payload(event.details): return false
 		seen_memory[event.memory_id] = true; seen_source[event.source_event_id] = true; previous = int(event.sequence)
 	if previous >= 0 and int(memory.next_sequence) <= previous: return false
 	var routine: Variant = memory.get("routine")
@@ -121,6 +122,7 @@ static func _validate_memory(memory_value: Variant) -> bool:
 static func _validate_language_payload(payload: Dictionary) -> bool:
 	if not (payload.get("language_version") is int) or int(payload.get("language_version", 0)) != 1 or not (payload.get("language_rules_version") is int) or int(payload.get("language_rules_version", 0)) != 1: return false
 	if not (payload.get("text") is String) or not (payload.get("normalized_text") is String) or String(payload.get("intent", "")) not in MemoryModelScript.LANGUAGE_INTENTS or not (payload.get("topics") is Array) or not (payload.get("sentiment") is int) or int(payload.get("sentiment")) not in [-1,0,1] or String(payload.get("reaction", "")) not in ["ACKNOWLEDGE","AFFECTIONATE","HAPPY","EXCITED","EAGER","SLEEPY","FORGIVING","COMFORTING","CURIOUS","LISTENING"] or String(payload.get("memory_cue", "")) not in ["NONE","RECOGNIZED_REPEAT","FAMILIAR_TOPIC"]: return false
+	if payload.has("matched_rule_id") and payload.get("matched_rule_id") != null and not (payload.get("matched_rule_id") is String): return false
 	return _canonical_topics(payload.topics)
 
 static func _validate_language_semantic(value: Variant) -> bool:

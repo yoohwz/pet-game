@@ -54,7 +54,7 @@ func _process(_delta: float) -> void:
 func refresh() -> void:
 	refresh_lifecycle_panel()
 	refresh_inspector()
-	var available := lifecycle_signature(_session().profile).ends_with(":AWAKE")
+	var available := lifecycle_signature(_session().profile) in ["PET:ALIVE:STABLE:AWAKE", "PET:ALIVE:CRITICAL:AWAKE"]
 	language_input.visible = available; language_send.visible = available; language_diagnostics.visible = available
 
 func lifecycle_signature(profile: Dictionary) -> String:
