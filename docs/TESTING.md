@@ -1,3 +1,3 @@
 # Testing
 
-Run `godot --headless --path . -s res://tests/test_runner.gd`. Tests retain Phase 0–2 coverage and add executable Phase 3 v3→v4 egg/HATCHING/pet migration, activity/vital validation, care clamps/rejections and candidate failures, offline sleep, complete sleep values/clamping/chunking, supplied runtime care-version mismatch semantics, failed care-event authority, interaction timeline ordering, stable awake/sleep controls, and reaction feedback. A pass exits 0; any failure exits non-zero.
+Run `godot --headless --path . -s res://tests/test_runner.gd`. Tests retain Phase 0–3 coverage and add Phase 4 schema-v5 migration/validation, newborn protection, zero-need boundary timing, survival damage, deterministic CRITICAL/death transitions, death freeze, rescue, dead-care rejection, atomic memorialization and explicit replacement-egg persistence. A pass exits 0; any failure exits non-zero.
