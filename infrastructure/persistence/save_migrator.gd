@@ -89,6 +89,7 @@ static func _normalize_pet_memory_numbers(pet: Dictionary) -> Dictionary:
 		next["relationship"] = relationship
 	if not (next.get("memory") is Dictionary): return next
 	var memory: Dictionary = next.memory.duplicate(true)
+	memory["memory_version"] = _whole_int_or_original(memory.get("memory_version"))
 	memory["next_sequence"] = _whole_int_or_original(memory.get("next_sequence"))
 	var events: Array = []
 	for event_value in memory.get("events", []):
@@ -113,5 +114,5 @@ static func _normalize_pet_memory_numbers(pet: Dictionary) -> Dictionary:
 	return next
 
 static func _whole_int_or_original(value: Variant) -> Variant:
-	if value is float and is_equal_approx(value, floor(value)): return int(value)
+	if value is float and value == floor(value): return int(value)
 	return value

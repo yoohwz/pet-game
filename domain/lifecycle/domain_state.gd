@@ -86,7 +86,7 @@ static func _validate_relationship(relationship_value: Variant) -> bool:
 static func _validate_memory(memory_value: Variant) -> bool:
 	if not (memory_value is Dictionary): return false
 	var memory: Dictionary = memory_value
-	if int(memory.get("memory_version", 0)) != 1 or not (memory.get("next_sequence") is int) or int(memory.next_sequence) < 0: return false
+	if not (memory.get("memory_version") is int) or int(memory.get("memory_version", 0)) != 1 or not (memory.get("next_sequence") is int) or int(memory.next_sequence) < 0: return false
 	var events_value = memory.get("events")
 	if not (events_value is Array) or events_value.size() > 64: return false
 	var seen_memory := {}; var seen_source := {}; var previous := -1

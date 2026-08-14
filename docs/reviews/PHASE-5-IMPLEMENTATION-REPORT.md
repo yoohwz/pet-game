@@ -24,7 +24,7 @@ Hatching projects the first lifecycle memory before persistence. CRITICAL/death 
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
 
-Result: **450 passed, 0 failed**.
+Result: **655 passed, 0 failed**.
 
 Coverage includes Phase 0–4 regression plus relationship reward/cooldown/config semantics, rescue bonus, memory projection/views/eviction/deduplication, candidate failure atomicity, v5→v6 active and memorial migration, hatch/survival/rescue chronology, death freeze, memorial preservation, new-pet isolation and UI stability.
 
@@ -76,7 +76,7 @@ Inspector required fields, action-time stability, and read-only refresh: PASS
 ### Tests
 
 `godot --headless --path . -s res://tests/test_runner.gd`
-**589 passed, 0 failed**
+**655 passed, 0 failed**
 
 ### Project Validation
 
@@ -87,3 +87,76 @@ PASS
 Phase 0–4: PASS
 Architecture: PASS
 Scope: PASS
+
+## Acceptance Review Corrective Pass 2
+
+Previous verdict: **REWORK REQUIRED**
+
+Pre-correction review HEAD: `3229bb6edfdfd60ee998ac912671af55c7c4f774`
+
+### Production Fix 1 — memory_version validation
+
+Strict integer type: PASS
+Exact v1: PASS
+Malformed versions rejected: PASS
+
+### Production Fix 2 — JSON canonicalization
+
+Exact whole float: PASS
+Fractional value: PASS
+Near-integer fractional: PASS
+Negative fractional: PASS
+Repository round-trip: PASS
+
+Only exact `value == floor(value)` JSON floats are canonicalized at the migration boundary. No approximate comparison is used.
+
+### Deterministic Memory
+
+Survival chunking equivalence: PASS
+Critical memory exact-once: PASS
+Death memory details: PASS
+Equal-importance eviction tie-break: PASS
+Favorite interaction tie: PASS
+
+### Relationship Invariance
+
++1 day: PASS
++7 days: PASS
+Sleep/offline: PASS
+
+### Migration
+
+v5 active no-backfill: PASS
+v5 INCUBATING: PASS
+v5 READY: PASS
+v5 HATCHING: PASS
+v5 HATCHING completion: PASS
+v5 memorial no-backfill: PASS
+
+### Views
+
+Working exact content: PASS
+Episodic exact content: PASS
+Emotional exact content: PASS
+Query purity: PASS
+
+### Regression
+
+Phase 0: PASS
+Phase 1: PASS
+Phase 2: PASS
+Phase 3: PASS
+Phase 4: PASS
+Phase 5 core: PASS
+
+### Tests
+
+**655 passed, 0 failed**
+
+### Project Validation
+
+PASS
+
+### Architecture / scope
+
+PASS
