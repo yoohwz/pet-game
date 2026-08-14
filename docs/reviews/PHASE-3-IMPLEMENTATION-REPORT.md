@@ -44,3 +44,22 @@ Evidence/report commit: this documentation delivery commit (final branch HEAD is
 Care version semantics: the deterministic ID now uses the supplied care configuration version, so mismatch math cannot masquerade as persisted v1 semantics. Tests prove same-version determinism, supplied v2 identity change, mismatch math using the supplied recovery rate, and all missing v3 lifecycle migration, sleep/UI/reaction acceptance cases.
 
 Current tests: **199 passed, 0 failed**.
+
+## Acceptance Review Corrective Pass 3
+
+Previous verdict: **REWORK REQUIRED**
+Pre-correction review HEAD: `427e2af5fe7d159fdbae05abbf58c060cdd4ea3b`
+Corrective commit: `1a1378c77004b71f16c5c48b7111e278a4845cc8`
+Evidence/report commit: this documentation delivery commit (final branch HEAD is authoritative)
+
+### Gap 1 — Persisted/runtime care-version mismatch
+
+Production code changed: **NO**. Runtime care v2 math: PASS. Runtime care v2 event identity: PASS. c1 versus c2 IDs distinct: PASS. Pure simulation leaves persisted care version unchanged: PASS.
+
+### Gap 2 — Failed interaction event authority
+
+Failed Feed care effect: NOT COMMITTED. Failed Feed `pet_fed` event: NOT COMMITTED. Failed Sleep activity transition: NOT COMMITTED. Failed Sleep `pet_sleep_started` event: NOT COMMITTED.
+
+### Regression
+
+Full suite: **208 passed, 0 failed**. Project validation: PASS. Phase 0–2 regression: PASS. Phase 3 regression: PASS. Architecture: PASS. Scope: PASS.
