@@ -1,0 +1,20 @@
+{
+  "language_rules_version": 1,
+  "max_input_chars": 256,
+  "repeat_window_messages": 8,
+  "familiar_topic_threshold": 3,
+  "topic_order": ["FOOD", "PLAY", "SLEEP", "PET", "USER"],
+  "intent_rules": [
+    {"id":"affection","intent":"AFFECTION","priority":90,"phrases":["i love you","love you","yeu ban","yeu em"],"sentiment":1,"reaction":"AFFECTIONATE"},
+    {"id":"praise","intent":"PRAISE","priority":80,"phrases":["good pet","good job","gioi qua","ngoan qua"],"sentiment":1,"reaction":"HAPPY"},
+    {"id":"play","intent":"PLAY_INVITE","priority":70,"phrases":["play with me","let us play","choi voi toi","choi nhe"],"sentiment":1,"reaction":"EXCITED"},
+    {"id":"food","intent":"FOOD_OFFER","priority":70,"phrases":["have some food","want food","an nhe","do an"],"sentiment":1,"reaction":"EAGER"},
+    {"id":"goodnight","intent":"GOODNIGHT","priority":70,"phrases":["good night","sleep well","ngu ngon","chuc ngu ngon"],"sentiment":0,"reaction":"SLEEPY"},
+    {"id":"apology","intent":"APOLOGY","priority":70,"phrases":["i am sorry","sorry pet","xin loi","minh xin loi"],"sentiment":-1,"reaction":"FORGIVING"},
+    {"id":"sad","intent":"USER_SAD","priority":70,"phrases":["i am sad","feel sad","toi buon","minh buon"],"sentiment":-1,"reaction":"COMFORTING"},
+    {"id":"happy","intent":"USER_HAPPY","priority":70,"phrases":["i am happy","feel happy","toi vui","minh vui"],"sentiment":1,"reaction":"HAPPY"},
+    {"id":"greeting","intent":"GREETING","priority":60,"phrases":["hello","hi pet","xin chao","chao ban"],"sentiment":0,"reaction":"ACKNOWLEDGE"}
+  ],
+  "topics": {"FOOD":["food","eat","an","do an"],"PLAY":["play","choi"],"SLEEP":["sleep","night","ngu"],"PET":["pet","ban","em"],"USER":["i","me","toi","minh"]},
+  "fallbacks": {"QUESTION":{"sentiment":0,"reaction":"CURIOUS"},"OTHER":{"sentiment":0,"reaction":"LISTENING"}}
+}

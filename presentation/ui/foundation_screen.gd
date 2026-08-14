@@ -10,6 +10,9 @@ var rendered_lifecycle_signature := ""
 var lifecycle_rebuild_count := 0
 var session_override: PetGameSession
 var reaction_label: Label
+var language_input: LineEdit
+var language_send: Button
+var language_diagnostics: Label
 
 func _session():
 	return session_override if session_override != null else get_node_or_null("/root/GameSession")
@@ -28,6 +31,9 @@ func _ready() -> void:
 	reaction_label = Label.new()
 	reaction_label.text = ""
 	panel.add_child(reaction_label)
+	language_input = LineEdit.new(); language_input.placeholder_text = "Say something to your pet"; panel.add_child(language_input)
+	language_send = Button.new(); language_send.text = "Send"; language_send.pressed.connect(func(): _speak()); panel.add_child(language_send)
+	language_diagnostics = Label.new(); panel.add_child(language_diagnostics)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(buttons)
@@ -48,6 +54,8 @@ func _process(_delta: float) -> void:
 func refresh() -> void:
 	refresh_lifecycle_panel()
 	refresh_inspector()
+	var available := lifecycle_signature(_session().profile).ends_with(":AWAKE")
+	language_input.visible = available; language_send.visible = available; language_diagnostics.visible = available
 
 func lifecycle_signature(profile: Dictionary) -> String:
 	var subject := String(profile.get("active_subject", "NONE"))
@@ -185,4 +193,13 @@ func _memorialize() -> void:
 func _new_egg() -> void:
 	var result: Dictionary = _session().request_new_egg(_session().clock.monotonic_seconds())
 	reaction_label.text = "A new egg arrived." if result.ok else "A new egg could not be saved."
+	refresh()
+
+func _speak() -> void:
+	var result: Dictionary = _session().speak_to_pet(language_input.text, _session().clock.monotonic_seconds())
+	if result.ok:
+		language_diagnostics.text = "Intent: %s\nTopics: %s\nReaction: %s\nMemory cue: %s" % [result.intent, ", ".join(result.topics), result.reaction, result.memory_cue]
+		language_input.text = ""
+	else:
+		language_diagnostics.text = "Message rejected: %s" % result.reason
 	refresh()
