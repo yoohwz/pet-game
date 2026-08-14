@@ -24,9 +24,9 @@ Hatching projects the first lifecycle memory before persistence. CRITICAL/death 
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
 
-Result: **435 passed, 0 failed**.
+Result: **450 passed, 0 failed**.
 
-Coverage includes Phase 0–4 regression plus relationship reward/cooldown/config semantics, memory projection/views/eviction/deduplication, candidate failure atomicity, v5→v6 active and memorial migration, hatch/survival/rescue chronology, freeze and UI stability.
+Coverage includes Phase 0–4 regression plus relationship reward/cooldown/config semantics, rescue bonus, memory projection/views/eviction/deduplication, candidate failure atomicity, v5→v6 active and memorial migration, hatch/survival/rescue chronology, death freeze, memorial preservation, new-pet isolation and UI stability.
 
 ## Architecture and scope
 
