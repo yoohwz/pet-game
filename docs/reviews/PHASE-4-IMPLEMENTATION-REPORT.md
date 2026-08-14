@@ -30,7 +30,7 @@ v4 profiles migrate to v5 with `survival_balance_version = 1`, a stable survival
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
 
-Result: **291 passed, 0 failed**.
+Result: **336 passed, 0 failed**.
 
 Coverage includes Phase 0–3 regression, protection, zero-need boundary timing, damage rates, deterministic critical/death timestamps, offline death, death freezing, rescue, dead-care rejection, memorial persistence failure safety, explicit new egg and v4→v5 migration/validation.
 
@@ -49,3 +49,21 @@ Pre-correction review HEAD: `1ffd73a755284b97973416f8e46c883df57bb4e4`
 - Memorial bookkeeping preserves legacy history: `memorial_count` is incremented independently from durable snapshot count.
 - DEAD UI displays name, birth, death time and death cause; MEMORIAL UI reads its latest durable snapshot and handles historical count-only states safely.
 - The acceptance matrix now covers causes, chunking, critical event uniqueness/order, partial rescue, permanent death, migration, survival version semantics, candidate failures and stable UI transitions.
+
+## Acceptance Review Corrective Pass 2
+
+Previous verdict: `REWORK REQUIRED`
+
+Pre-correction review HEAD: `c26c4c41cddb31a063461b4f50fcfedb7c442627`
+
+### Production Fix 1 — CRITICAL sleeping warning
+
+Resolved: YES. `PET:ALIVE:CRITICAL:SLEEPING` displays both its sleeping state and CRITICAL warning while retaining the Wake-only control contract.
+
+### Production Fix 2 — Historical memorial action consistency
+
+Application eligibility remains snapshot-backed (`memorial_count > 0` and non-empty `memorials`). Presentation distinguishes historical-only memorials, shows their history safely, and hides New Egg when it would be rejected.
+
+### Acceptance completion
+
+Direct executable coverage now includes permanent death through resume/debug/backward-clock paths, dead-care rejection, complete survival validation, v4 egg/HATCHING migration and completion, critical→death chronology, memorial/new-egg failure authority, no unattended memorial, New Egg 4-hour/offline READY behavior, and the full critical/dead/memorial UI transition matrix.

@@ -55,7 +55,8 @@ func lifecycle_signature(profile: Dictionary) -> String:
 	if subject == "PET":
 		var pet: Dictionary = profile.get("active_pet", {})
 		return "PET:%s:%s:%s" % [String(pet.get("life", {}).get("life_state", "UNKNOWN")), String(pet.get("survival", {}).get("condition", "STABLE")), String(pet.get("activity", {}).get("state", "AWAKE"))]
-	return "MEMORIAL:%d" % int(profile.get("memorial_count", 0)) if int(profile.get("memorial_count", 0)) > 0 else "NONE"
+	if int(profile.get("memorial_count", 0)) <= 0: return "NONE"
+	return "MEMORIAL:SNAPSHOT:%d" % int(profile.get("memorial_count", 0)) if not profile.get("memorials", []).is_empty() else "MEMORIAL:HISTORICAL_ONLY:%d" % int(profile.get("memorial_count", 0))
 
 func refresh_lifecycle_panel() -> void:
 	var signature := lifecycle_signature(_session().profile)
@@ -85,7 +86,7 @@ func _rebuild_lifecycle_panel(signature: String) -> void:
 		for item in [["Feed", "feed"], ["Drink", "drink"], ["Play", "play"], ["Wash", "wash"], ["Touch", "touch"], ["Sleep", "sleep"]]: _add_button(item[0], func(): _care(item[1]))
 	elif signature == "PET:ALIVE:STABLE:SLEEPING" or signature == "PET:ALIVE:CRITICAL:SLEEPING":
 		_add_button("Wake", func(): _care("wake"))
-	elif signature.begins_with("MEMORIAL:"):
+	elif signature.begins_with("MEMORIAL:SNAPSHOT:"):
 		_add_button("New Egg", func(): _new_egg())
 
 func _update_lifecycle_dynamic_text() -> void:
@@ -98,11 +99,13 @@ func _update_lifecycle_dynamic_text() -> void:
 	elif signature == "EGG:READY": lifecycle_status.text = "Egg\nStatus: Ready to hatch"
 	elif signature == "EGG:HATCHING": lifecycle_status.text = "Egg\nStatus: Hatching"
 	elif signature.begins_with("PET:DEAD:"): lifecycle_status.text = "Pet has died\nMemorialize when you are ready"
-	elif signature.ends_with(":SLEEPING"): lifecycle_status.text = "Pet is sleeping"
+	elif signature == "PET:ALIVE:CRITICAL:SLEEPING": lifecycle_status.text = "Pet is sleeping\nCRITICAL — care is needed"
+	elif signature == "PET:ALIVE:STABLE:SLEEPING": lifecycle_status.text = "Pet is sleeping"
 	elif signature.begins_with("PET:ALIVE:"):
 		var condition := String(p.get("active_pet", {}).get("survival", {}).get("condition", "STABLE"))
 		lifecycle_status.text = "Newborn Pet\nCRITICAL — care is needed" if condition == "CRITICAL" else "Newborn Pet"
-	elif signature.begins_with("MEMORIAL:"): lifecycle_status.text = "Memorial\nA new egg is available when you are ready."
+	elif signature.begins_with("MEMORIAL:SNAPSHOT:"): lifecycle_status.text = "Memorial\nA new egg is available when you are ready."
+	elif signature.begins_with("MEMORIAL:HISTORICAL_ONLY:"): lifecycle_status.text = "Memorial\nHistorical memorials are preserved."
 	else: lifecycle_status.text = "No active subject"
 
 func has_lifecycle_button(text: String) -> bool:

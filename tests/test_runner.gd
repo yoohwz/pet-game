@@ -482,6 +482,47 @@ func _run() -> void:
 	ok(death_screen.has_lifecycle_button("New Egg") and death_screen.inspector.text.contains("Memorial") and death_screen.inspector.text.contains("Name: Test"), "memorial UI displays latest snapshot")
 	var new_egg_button := death_screen.lifecycle_button("New Egg"); var memorial_rebuilds: int = death_screen.lifecycle_rebuild_count; death_screen.refresh(); eq(death_screen.lifecycle_button("New Egg"), new_egg_button, "new egg button stable"); eq(death_screen.lifecycle_rebuild_count, memorial_rebuilds, "memorial UI does not rebuild")
 	ok(death_ui_session.request_new_egg(10.0).ok, "UI fixture creates explicit new egg"); death_screen.refresh(); ok(death_screen.has_lifecycle_button("Touch Egg") and not death_screen.has_lifecycle_button("New Egg"), "new egg UI returns to incubation controls")
+	# Final Phase 4 corrective pass: application permanence, UI matrices and v4 egg migration.
+	var permanent_session = PetGameSessionScript.new(); permanent_session.balance = BALANCE; permanent_session.lifecycle = care_session.lifecycle; permanent_session.care = care_session.care; permanent_session.survival = SURVIVAL; permanent_session.profile = dead_result.new_state.duplicate(true); permanent_session.reanchor(10.0)
+	var dead_vitals: Dictionary = permanent_session.profile.active_pet.vitals.duplicate(true); var dead_at: int = int(permanent_session.profile.active_pet.life.died_at); var dead_cause: String = String(permanent_session.profile.active_pet.life.death_cause)
+	permanent_session.resume_at(20000, 20.0); eq(permanent_session.profile.active_pet.life.life_state, "DEAD", "resume keeps death permanent"); eq(permanent_session.profile.active_pet.vitals, dead_vitals, "resume freezes dead vitals"); eq(permanent_session.profile.active_pet.life.died_at, dead_at, "resume keeps death timestamp")
+	permanent_session.advance_debug(604800, 30.0); eq(permanent_session.profile.active_pet.vitals, dead_vitals, "debug keeps dead vitals frozen"); eq(permanent_session.profile.active_pet.life.death_cause, dead_cause, "debug keeps death cause")
+	permanent_session.resume_at(1000, 40.0); eq(permanent_session.profile.active_pet.life.died_at, dead_at, "backward wall clock does not alter dead timestamp"); eq(permanent_session.profile.active_pet.vitals.health, 0.0, "backward wall clock cannot revive pet")
+	var dead_events_before: int = permanent_session.profile.recent_events.size()
+	for action in ["feed", "drink", "sleep", "wake"]:
+		eq(permanent_session.care_action(action, 40.0).reason, "PET_DEAD", "dead %s is rejected" % action)
+	eq(permanent_session.profile.recent_events.size(), dead_events_before, "dead care actions append no events")
+	# Stable/critical/dead control semantics include the critical-sleeping warning.
+	var critical_ui_session = PetGameSessionScript.new(); critical_ui_session.balance = BALANCE; critical_ui_session.lifecycle = care_session.lifecycle; critical_ui_session.care = care_session.care; critical_ui_session.survival = SURVIVAL; critical_ui_session.profile = fixture(); critical_ui_session.reanchor(10.0)
+	var critical_screen = FoundationScreenScript.new(); critical_screen.session_override = critical_ui_session; critical_screen._ready()
+	var stable_feed := critical_screen.lifecycle_button("Feed"); var stable_rebuilds: int = critical_screen.lifecycle_rebuild_count; critical_screen.refresh(); eq(critical_screen.lifecycle_button("Feed"), stable_feed, "stable awake feed remains stable"); eq(critical_screen.lifecycle_rebuild_count, stable_rebuilds, "stable awake does not rebuild")
+	critical_ui_session.profile.active_pet.survival = {"condition":"CRITICAL", "critical_started_at":1000}; critical_screen.refresh(); eq(critical_screen.lifecycle_rebuild_count, stable_rebuilds + 1, "stable to critical awake rebuilds once"); ok(critical_screen.inspector.text.contains("CRITICAL") or critical_screen.lifecycle_status.text.contains("CRITICAL"), "critical awake warning visible"); ok(critical_screen.has_lifecycle_button("Feed") and critical_screen.has_lifecycle_button("Drink"), "critical awake retains care controls")
+	var critical_feed := critical_screen.lifecycle_button("Feed"); var critical_rebuilds: int = critical_screen.lifecycle_rebuild_count; critical_screen.refresh(); eq(critical_screen.lifecycle_button("Feed"), critical_feed, "critical awake feed stable"); eq(critical_screen.lifecycle_rebuild_count, critical_rebuilds, "critical awake does not rebuild")
+	critical_ui_session.profile.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; critical_screen.refresh(); eq(critical_screen.lifecycle_rebuild_count, critical_rebuilds + 1, "critical awake to sleeping rebuilds once"); ok(critical_screen.has_lifecycle_button("Wake") and not critical_screen.has_lifecycle_button("Feed"), "critical sleeping remains wake-only"); ok(critical_screen.lifecycle_status.text.contains("CRITICAL") and critical_screen.lifecycle_status.text.contains("sleeping"), "critical sleeping warning remains visible")
+	var critical_wake := critical_screen.lifecycle_button("Wake"); var critical_sleep_rebuilds: int = critical_screen.lifecycle_rebuild_count; critical_screen.refresh(); eq(critical_screen.lifecycle_button("Wake"), critical_wake, "critical sleeping wake stable"); eq(critical_screen.lifecycle_rebuild_count, critical_sleep_rebuilds, "critical sleeping does not rebuild")
+	critical_ui_session.profile = dead_result.new_state.duplicate(true); critical_screen.refresh(); ok(critical_screen.has_lifecycle_button("Memorialize Pet") and not critical_screen.has_lifecycle_button("Wake"), "critical to dead removes care controls")
+	# Historical count-only state cannot expose an impossible New Egg action.
+	var historical_ui_session = PetGameSessionScript.new(); historical_ui_session.balance = BALANCE; historical_ui_session.lifecycle = care_session.lifecycle; historical_ui_session.care = care_session.care; historical_ui_session.survival = SURVIVAL; historical_ui_session.profile = DomainStateScript.new_profile("historical", 1000); historical_ui_session.profile.memorial_count = 3; historical_ui_session.profile.memorials = []
+	var historical_screen = FoundationScreenScript.new(); historical_screen.session_override = historical_ui_session; historical_screen._ready(); ok(historical_screen.inspector.text.contains("Historical memorials: 3"), "historical-only memorial UI is safe"); ok(not historical_screen.has_lifecycle_button("New Egg"), "historical-only UI hides unavailable new egg action"); eq(historical_ui_session.request_new_egg(10.0).reason, "NEW_EGG_UNAVAILABLE", "application and historical-only UI agree")
+	# Full validation matrix for survival/death and snapshot memorials.
+	var validation_critical: Dictionary = fixture().active_pet; validation_critical.survival = {"condition":"CRITICAL", "critical_started_at":1}; ok(DomainStateScript.validate_pet(validation_critical), "valid alive critical pet validates")
+	var invalid_survival: Dictionary = fixture().active_pet; invalid_survival.survival = {"condition":"STABLE", "critical_started_at":1}; ok(not DomainStateScript.validate_pet(invalid_survival), "stable with timestamp fails")
+	invalid_survival = fixture().active_pet; invalid_survival.survival = {"condition":"CRITICAL", "critical_started_at":null}; ok(not DomainStateScript.validate_pet(invalid_survival), "critical without timestamp fails")
+	var invalid_dead := valid_dead.duplicate(true); invalid_dead.life.died_at = null; ok(not DomainStateScript.validate_pet(invalid_dead), "dead without died_at fails")
+	invalid_dead = valid_dead.duplicate(true); invalid_dead.life.death_cause = ""; ok(not DomainStateScript.validate_pet(invalid_dead), "dead without cause fails")
+	invalid_dead = valid_dead.duplicate(true); invalid_dead.vitals.health = 1.0; ok(not DomainStateScript.validate_pet(invalid_dead), "dead health above zero fails")
+	invalid_dead = fixture().active_pet; invalid_dead.life.died_at = 1; ok(not DomainStateScript.validate_pet(invalid_dead), "alive with died_at fails")
+	var valid_memorial := DomainStateScript.new_profile("good:memorial", 1); valid_memorial.memorial_count = 1; valid_memorial.memorials = [{"schema_version":1, "memorial_id":"memorial:good", "memorialized_at":9000, "pet_snapshot":valid_dead.duplicate(true)}]; ok(DomainStateScript.validate_profile(valid_memorial), "valid dead snapshot memorial validates")
+	# Real schema-v4 egg migration preserves all egg/hatching data and completion identity.
+	var v4_egg := DomainStateScript.new_profile("v4:egg", 1000); v4_egg.schema_version = 4; v4_egg.simulation.simulation_version = 4; v4_egg.simulation.erase("survival_balance_version"); v4_egg.active_subject = "EGG"; v4_egg.active_egg = DomainStateScript.new_egg("egg:v4", 1000, 15400); v4_egg.active_egg.schema_version = 4
+	var v5_inc := SaveMigratorScript.migrate(v4_egg); eq(v5_inc.schema_version, 5, "v4 incubating migrates to v5"); eq(v5_inc.active_egg.egg_id, "egg:v4", "v4 egg id preserved"); eq(v5_inc.active_egg.hatch_ready_at, 15400, "v4 egg ready time preserved")
+	v4_egg.active_egg.state = "READY"; eq(SaveMigratorScript.migrate(v4_egg).active_egg.state, "READY", "v4 ready remains ready")
+	v4_egg.active_egg.state = "HATCHING"; v4_egg.active_egg.reserved_pet_id = "pet:v4-reserved"; v4_egg.active_egg.reserved_pet_seed = 88; v4_egg.active_egg.hatching_started_at = 15400
+	var v5_hatching := SaveMigratorScript.migrate(v4_egg); eq(v5_hatching.active_egg.reserved_pet_id, "pet:v4-reserved", "v4 hatching reserved identity preserved")
+	var v4_hatching_session = PetGameSessionScript.new(); v4_hatching_session.balance = BALANCE; v4_hatching_session.lifecycle = care_session.lifecycle; v4_hatching_session.care = care_session.care; v4_hatching_session.survival = SURVIVAL; v4_hatching_session.profile = v5_hatching; ok(v4_hatching_session.complete_hatching(16000, 10.0), "migrated v4 hatching completes"); eq(v4_hatching_session.profile.active_pet.identity.pet_id, "pet:v4-reserved", "migrated v4 hatching uses reserved pet identity")
+	# Critical/death chronology is ordered in a single long reconciliation.
+	ok(_event_index(dead_result.generated_events, "pet_became_critical") < _event_index(dead_result.generated_events, "pet_died"), "critical event precedes death event"); ok(dead_result.new_state.active_pet.survival.critical_started_at < dead_result.new_state.active_pet.life.died_at, "critical timestamp precedes death timestamp")
+	v4_hatching_session.free(); historical_screen.free(); historical_ui_session.free(); critical_screen.free(); critical_ui_session.free(); permanent_session.free()
 	death_screen.free(); death_ui_session.free(); failed_egg.free(); legacy_session.free(); partial_session.free()
 	offline_death_session.free(); failed_memorial.free(); dead_session.free(); rescue_session.free()
 	care_screen.free(); care_ui_session.free(); clamp_session.free(); migrated_hatch_session.free()
@@ -494,6 +535,10 @@ func _has_event(events: Array, event_type: String) -> bool:
 	for event in events:
 		if String(event.get("event_type", "")) == event_type: return true
 	return false
+func _event_index(events: Array, event_type: String) -> int:
+	for index in range(events.size()):
+		if String(events[index].get("event_type", "")) == event_type: return index
+	return -1
 func _reset() -> void:
 	for path in [LocalSaveRepositoryScript.PROFILE_PATH, LocalSaveRepositoryScript.BACKUP_PATH, LocalSaveRepositoryScript.TEMP_PATH, LocalSaveRepositoryScript.BACKUP_TEMP_PATH]:
 		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
