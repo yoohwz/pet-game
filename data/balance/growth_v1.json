@@ -1,0 +1,6 @@
+{
+  "growth_balance_version": 1,
+  "child_age_seconds": 172800,
+  "adolescent_age_seconds": 604800,
+  "adult_age_seconds": 1814400
+}
