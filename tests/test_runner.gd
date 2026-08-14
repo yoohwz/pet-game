@@ -265,13 +265,28 @@ func _run() -> void:
 	var event_changed: Dictionary = SimulationKernelScript.simulate(care_v2_profile, 1000, 4600, BALANCE, care_session.lifecycle, care_v2).generated_events[-1]
 	eq(event_one.event_id, event_two.event_id, "same care version simulation event deterministic")
 	ok(event_one.event_id != event_changed.event_id, "care balance version changes event identity")
+	# Final evidence: persisted c1 with supplied c2 must use c2 math and identity.
+	var mismatch_profile := fixture(); mismatch_profile.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}; mismatch_profile.active_pet.vitals.energy = 0.0; mismatch_profile.simulation.care_balance_version = 1
+	var mismatch_v1: Dictionary = care_session.care.duplicate(true); mismatch_v1.care_balance_version = 1; mismatch_v1.sleep_energy_full_recovery_seconds = 28800
+	var mismatch_v2: Dictionary = care_session.care.duplicate(true); mismatch_v2.care_balance_version = 2; mismatch_v2.sleep_energy_full_recovery_seconds = 14400
+	var mismatch_result_v1 := SimulationKernelScript.simulate(mismatch_profile, 1000, 8200, BALANCE, care_session.lifecycle, mismatch_v1)
+	var mismatch_result_v2 := SimulationKernelScript.simulate(mismatch_profile, 1000, 8200, BALANCE, care_session.lifecycle, mismatch_v2)
+	approx(mismatch_result_v2.new_state.active_pet.vitals.energy, 50.0, "mismatch runtime uses supplied care v2 math")
+	ok(mismatch_result_v2.generated_events[-1].event_id.contains(":c2:"), "mismatch event identity encodes supplied care v2")
+	ok(mismatch_result_v1.generated_events[-1].event_id != mismatch_result_v2.generated_events[-1].event_id, "mismatch c1 and c2 identities differ")
+	eq(mismatch_result_v2.new_state.simulation.care_balance_version, 1, "pure simulation preserves persisted care version")
 	var fail_care = PetGameSessionScript.new(); fail_care.balance = BALANCE; fail_care.lifecycle = care_session.lifecycle; fail_care.care = care_session.care; fail_care.profile = fixture(); fail_care.profile.active_pet.vitals.hunger = 40.0; fail_care.reanchor(10.0)
 	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
 	eq(fail_care.care_action("feed", 10.0).reason, "PERSIST_FAILED", "care save failure reported")
 	eq(fail_care.profile.active_pet.vitals.hunger, 40.0, "failed feed does not commit care effect")
+	eq(fail_care.profile.recent_events.size(), 0, "failed feed adds no authoritative event")
+	ok(not _has_event(fail_care.profile.recent_events, "pet_fed"), "failed feed has no pet_fed event")
 	LocalSaveRepositoryScript.test_fail_next_primary_replace = true
 	eq(fail_care.care_action("sleep", 10.0).reason, "PERSIST_FAILED", "sleep save failure reported")
 	eq(fail_care.profile.active_pet.activity.state, "AWAKE", "failed sleep stays awake")
+	eq(fail_care.profile.active_pet.activity.sleep_started_at, null, "failed sleep has no start timestamp")
+	eq(fail_care.profile.recent_events.size(), 0, "failed sleep adds no authoritative event")
+	ok(not _has_event(fail_care.profile.recent_events, "pet_sleep_started"), "failed sleep has no event")
 	fail_care.profile.active_pet.vitals.energy = 5.0; var before_mood: float = fail_care.profile.active_pet.vitals.mood; var before_energy: float = fail_care.profile.active_pet.vitals.energy; var before_events: int = fail_care.profile.recent_events.size()
 	eq(fail_care.care_action("play", 10.0).reason, "LOW_ENERGY", "low energy play rejected")
 	eq(fail_care.profile.active_pet.vitals.energy, before_energy, "low energy play preserves energy")
@@ -349,6 +364,10 @@ func _run() -> void:
 
 func _write(path: String, content: String) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE); file.store_string(content); file.close()
+func _has_event(events: Array, event_type: String) -> bool:
+	for event in events:
+		if String(event.get("event_type", "")) == event_type: return true
+	return false
 func _reset() -> void:
 	for path in [LocalSaveRepositoryScript.PROFILE_PATH, LocalSaveRepositoryScript.BACKUP_PATH, LocalSaveRepositoryScript.TEMP_PATH, LocalSaveRepositoryScript.BACKUP_TEMP_PATH]:
 		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
