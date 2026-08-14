@@ -47,9 +47,9 @@ Raw schema/timestamp/event/relationship/memory/language diagnostics and the exis
 ## Tests
 
 Command: `godot --headless --path . -s res://tests/test_runner.gd`
-Result: 1046 passed, 0 failed
+Result: 1174 passed, 0 failed
 
-The suite adds direct coverage for project/viewport settings, default developer-panel visibility, read-only refresh, visual mappings, needs projection, portrait button sizing, language feedback/control stability, full lifecycle presentation controls and the Time Machine’s production egg READY path.
+The suite adds direct coverage for project/viewport settings, default developer-panel visibility, read-only refresh, visual mappings, needs projection, portrait button sizing, language feedback/control stability, full lifecycle presentation controls, readable memorial UTC formatting, and actual Time Machine Button paths for egg readiness, needs, growth, CRITICAL and death.
 
 ## Regression and boundaries
 
