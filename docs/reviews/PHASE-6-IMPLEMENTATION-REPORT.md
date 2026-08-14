@@ -159,3 +159,107 @@ Online: NO
 Revive: NO
 
 Final art: NO
+
+## Acceptance Review Corrective Pass 1
+
+Previous verdict: REWORK REQUIRED
+
+Pre-correction review HEAD: `8e9dbc10235090dd9529e34782cb027697eba5a2`
+
+### Canonical Growth Event
+
+DomainEvent.make used: PASS
+
+schema_version: PASS
+
+DomainEvent.is_valid: PASS
+
+Multi-stage event validity: PASS
+
+### Application Growth Memory
+
+Long-vs-chunked: PASS
+
+Memory identity: PASS
+
+Source-event identity: PASS
+
+Ordering: PASS
+
+Exact-once: PASS
+
+### Cross-Cycle Growth
+
+Grown-pet memorial growth preservation: PASS
+
+Grown-pet memorial memory preservation: PASS
+
+Replacement pet NEWBORN reset: PASS
+
+Replacement growth metadata reset: PASS
+
+No growth-memory inheritance: PASS
+
+Old memorial unchanged: PASS
+
+### Dead Growth Freeze
+
+Resume: PASS
+
+Debug +7d: PASS
+
+Debug +365d: PASS
+
+Backward reconciliation: PASS
+
+No post-death growth memory: PASS
+
+### Growth Persistence Boundary
+
+Exact whole canonicalization: PASS
+
+Fractional rejection: PASS
+
+Near-integer rejection: PASS
+
+Negative fractional rejection: PASS
+
+Repository round-trip: PASS
+
+### v6 Egg Migration
+
+INCUBATING preservation: PASS
+
+READY preservation: PASS
+
+HATCHING preservation: PASS
+
+Migrated HATCHING completion: PASS
+
+### Same-Second Growth / Death
+
+Exact same timestamp: PASS
+
+Growth-before-death ordering: PASS
+
+Final DEAD CHILD stage: PASS
+
+### Tests
+
+**855 passed, 0 failed**
+
+### Project Validation
+
+PASS
+
+### Regression
+
+Phase 0–5: PASS
+
+### Architecture
+
+PASS
+
+### Scope
+
+PASS

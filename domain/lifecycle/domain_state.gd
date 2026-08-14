@@ -23,6 +23,8 @@ static func new_pet(pet_id: String, name: String, born_at: int, seed: int) -> Di
 static func validate_profile(profile: Dictionary) -> bool:
 	if int(profile.get("schema_version", 0)) != SCHEMA_VERSION: return false
 	if String(profile.get("profile_id", "")).is_empty(): return false
+	var simulation: Dictionary = profile.get("simulation", {})
+	if not (simulation.get("growth_balance_version") is int) or int(simulation.get("growth_balance_version", 0)) < 1: return false
 	if not (profile.get("memorials", []) is Array) or int(profile.get("memorial_count", -1)) < profile.get("memorials", []).size(): return false
 	for memorial in profile.get("memorials", []):
 		if not validate_memorial(memorial): return false

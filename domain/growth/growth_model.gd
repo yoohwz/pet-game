@@ -1,6 +1,7 @@
 class_name GrowthModel
 extends RefCounted
 
+const DomainEventScript = preload("res://domain/simulation/domain_event.gd")
 const STAGES := ["NEWBORN", "CHILD", "ADOLESCENT", "ADULT"]
 
 static func transitions_to(pet: Dictionary, target_time: int, config: Dictionary, simulation_version: int) -> Dictionary:
@@ -21,7 +22,7 @@ static func transitions_to(pet: Dictionary, target_time: int, config: Dictionary
 		growth["stage_started_at"] = int(transition.at)
 		growth["growth_balance_version"] = version
 		current_stage = to_stage
-		events.append({"event_id":"growth:v%d:g%d:%s:%s:%s:%d" % [simulation_version, version, String(identity.get("pet_id", "pet")), from_stage, to_stage, int(transition.at)], "event_type":"pet_grew", "occurred_at":int(transition.at), "subject_id":String(identity.get("pet_id", "pet")), "payload":{"from_stage":from_stage, "to_stage":to_stage, "stage_started_at":int(transition.at), "growth_balance_version":version}})
+		events.append(DomainEventScript.make("growth:v%d:g%d:%s:%s:%s:%d" % [simulation_version, version, String(identity.get("pet_id", "pet")), from_stage, to_stage, int(transition.at)], "pet_grew", int(transition.at), String(identity.get("pet_id", "pet")), {"from_stage":from_stage, "to_stage":to_stage, "stage_started_at":int(transition.at), "growth_balance_version":version}))
 	next["life"] = life
 	next["growth"] = growth
 	return {"pet":next, "events":events}
