@@ -854,6 +854,7 @@ func _run() -> void:
 	# A backward reconciliation cannot reverse a fully grown pet.
 	var backward_growth: Dictionary = adult_result.new_state.duplicate(true); var backward_stage_at: int = int(backward_growth.active_pet.growth.stage_started_at); var backward_result: Dictionary = SimulationKernelScript.simulate(backward_growth, 1815400, 1000, BALANCE, {}, care_session.care, SURVIVAL, GROWTH); eq(backward_result.new_state.active_pet.life.growth_stage, "ADULT", "backward clock never regresses growth"); eq(backward_result.new_state.active_pet.growth.stage_started_at, backward_stage_at, "backward clock preserves stage timestamp")
 	_run_phase7_language_tests(care_session.lifecycle, care_session.care, SURVIVAL, RELATIONSHIP, MEMORY, GROWTH)
+	_run_phase8_presentation_tests(care_session.lifecycle, care_session.care, SURVIVAL, RELATIONSHIP, MEMORY, GROWTH)
 	memory_ui.free(); rescue_memory.free(); survival_memory_session.free(); hatch_memory_session.free()
 	growth_screen.free(); growth_ui_session.free(); v6_hatching.free(); memory_long.free(); growth_memory_chunks.free(); growth_session.free(); offline_growth.free(); grown_cycle.free(); dead_growth_session.free(); predeath_memory_session.free()
 	for value in [relation_clamp_session, rescue_clamp, low_energy, v2_failure, care_authority, rescue_authority, sleep_memory_session, survival_long, survival_chunks, critical_only, invariant_session, v5_hatch_session]: value.free()
@@ -869,6 +870,209 @@ func _phase7_session(profile_value: Dictionary, lifecycle: Dictionary, care: Dic
 	var session := PetGameSessionScript.new()
 	session.balance = BALANCE; session.lifecycle = lifecycle; session.care = care; session.survival = survival; session.relationship_balance = relationship; session.memory_config = memory; session.growth = growth; session.language_rules = rules; session.profile = profile_value; session.reanchor(10.0)
 	return session
+
+func _run_phase8_presentation_tests(lifecycle: Dictionary, care: Dictionary, survival: Dictionary, relationship: Dictionary, memory: Dictionary, growth: Dictionary) -> void:
+	# Phase 8: the playable player shell is a read-only projection of Application state.
+	eq(ProjectSettings.get_setting("application/config/name"), "Pet Game", "Phase 8 project identity is Pet Game")
+	eq(ProjectSettings.get_setting("display/window/size/viewport_width"), 360, "Phase 8 viewport width remains portrait 360")
+	eq(ProjectSettings.get_setting("display/window/size/viewport_height"), 640, "Phase 8 viewport height remains portrait 640")
+	eq(ProjectSettings.get_setting("rendering/textures/canvas_textures/default_texture_filter"), 0, "Phase 8 keeps nearest-neighbor texture filter")
+	var packed_main: PackedScene = load("res://presentation/scenes/main.tscn")
+	var main_instance = packed_main.instantiate() if packed_main != null else null
+	ok(main_instance != null, "Phase 8 main scene instantiates")
+	if main_instance != null: main_instance.free()
+	var rules: Dictionary = DefaultLanguageRulesScript.load_config()
+	var session := _phase7_session(fixture(), lifecycle, care, survival, relationship, memory, growth, rules)
+	var screen := FoundationScreenScript.new()
+	screen.session_override = session
+	screen._ready()
+	ok(not screen.developer_panel_visible and not screen.developer_panel.visible, "Phase 8 developer panel is hidden by default")
+	ok(screen.developer_time_machine.get_parent() == screen.developer_panel, "Phase 8 Time Machine is not in the player surface")
+	ok(not screen.language_diagnostics.visible, "Phase 8 technical language diagnostics are hidden by default")
+	var before_render: Dictionary = session.profile.duplicate(true)
+	var writes_before: int = session.persistence_write_count
+	for _index in range(3): screen.refresh()
+	eq(session.profile, before_render, "Phase 8 normal refresh is read-only")
+	eq(session.persistence_write_count, writes_before, "Phase 8 normal refresh writes nothing")
+	screen.set_developer_panel_visible(true)
+	ok(screen.developer_panel.visible and screen.language_diagnostics.visible, "Phase 8 explicit seam reveals developer diagnostics")
+	var before_debug_refresh: Dictionary = session.profile.duplicate(true)
+	screen.refresh(); screen.refresh()
+	eq(session.profile, before_debug_refresh, "Phase 8 developer refresh remains read-only")
+	var developer_debug := _button_in(screen.developer_time_machine, "+8h")
+	ok(developer_debug != null and developer_debug.custom_minimum_size.y >= 44.0, "Phase 8 developer Time Machine remains reachable")
+	# Companion mappings are visual-only and cover every accepted product state.
+	eq(screen.companion_view.visual_state, "NEWBORN", "Phase 8 newborn maps to companion placeholder")
+	for stage in ["CHILD", "ADOLESCENT", "ADULT"]:
+		session.profile.active_pet.life.growth_stage = stage
+		screen.refresh()
+		eq(screen.companion_view.visual_state, stage, "Phase 8 %s maps to distinct companion placeholder" % stage)
+	session.profile.active_pet.activity = {"state":"SLEEPING", "sleep_started_at":1000}
+	screen.refresh()
+	eq(screen.companion_view.visual_state, "SLEEPING", "Phase 8 sleeping maps to sleeping companion")
+	eq(session.profile.active_pet.activity.state, "SLEEPING", "Phase 8 sleeping visual does not alter activity")
+	session.profile.active_pet.activity = {"state":"AWAKE", "sleep_started_at":null}
+	session.profile.active_pet.survival = {"condition":"CRITICAL", "critical_started_at":1000}
+	screen.refresh()
+	ok(screen.companion_view.critical and screen.lifecycle_status.text.contains("CRITICAL"), "Phase 8 critical overlay is explicit")
+	for key in ["hunger", "hydration", "energy", "hygiene", "mood", "health"]: ok(screen.has_need_label(key), "Phase 8 alive pet shows %s need" % key)
+	session.profile.active_pet.vitals.hunger = 41.2
+	screen.refresh()
+	ok(String(screen.need_labels.hunger.text).contains("41"), "Phase 8 needs reflect authoritative values")
+	eq(session.profile.active_pet.vitals.hunger, 41.2, "Phase 8 needs rendering does not mutate values")
+	var critical_feed := screen.lifecycle_button("Feed")
+	ok(critical_feed != null and critical_feed.custom_minimum_size.y >= 44.0, "Phase 8 player care buttons have practical touch targets")
+	var critical_rebuilds := screen.lifecycle_rebuild_count
+	screen.reaction_label.text = "Reaction: HAPPY"
+	screen.refresh()
+	eq(screen.lifecycle_button("Feed"), critical_feed, "Phase 8 reaction refresh keeps care controls stable")
+	eq(screen.lifecycle_rebuild_count, critical_rebuilds, "Phase 8 reaction refresh does not rebuild controls")
+	# English-only language feedback stays non-verbal and routes through the existing command.
+	screen.language_input.text = "hello pet"
+	screen._speak()
+	ok(screen.reaction_label.text.begins_with("Reaction:") and not screen.reaction_label.text.contains("says"), "Phase 8 language UI shows non-verbal feedback only")
+	eq(screen.lifecycle_button("Feed"), critical_feed, "Phase 8 language send keeps care control identity")
+	# Lifecycle control and stage matrices are projected from the profile, not a UI state machine.
+	var egg := DomainStateScript.new_profile("profile:phase8:egg", 1000)
+	egg.initial_egg_issued = true; egg.active_subject = "EGG"; egg.active_egg = DomainStateScript.new_egg("egg:phase8", 1000, 15400)
+	session.profile = egg; screen.refresh()
+	eq(screen.companion_view.visual_state, "EGG", "Phase 8 egg maps to egg companion")
+	ok(screen.has_lifecycle_button("Touch Egg") and not screen.has_lifecycle_button("Hatch Egg"), "Phase 8 incubating exposes Touch Egg only")
+	session.profile.active_egg.state = "READY"; screen.refresh()
+	ok(screen.has_lifecycle_button("Touch Egg") and screen.has_lifecycle_button("Hatch Egg"), "Phase 8 ready exposes Hatch Egg")
+	session.profile.active_egg.state = "HATCHING"; session.profile.active_egg.reserved_pet_id = "pet:phase8"; session.profile.active_egg.reserved_pet_seed = 8; session.profile.active_egg.hatching_started_at = 15400; screen.refresh()
+	ok(screen.has_lifecycle_button("Continue Hatching") and not screen.has_lifecycle_button("Touch Egg"), "Phase 8 hatching exposes Continue Hatching")
+	var dead_profile := fixture()
+	dead_profile.active_pet.life.life_state = "DEAD"; dead_profile.active_pet.life.died_at = 2000; dead_profile.active_pet.life.death_cause = "STARVATION"; dead_profile.active_pet.vitals.health = 0.0
+	session.profile = dead_profile; screen.refresh()
+	eq(screen.companion_view.visual_state, "DEAD", "Phase 8 dead maps to dead companion")
+	ok(screen.has_lifecycle_button("Memorialize Pet") and not screen.needs_panel.visible and not screen.language_input.visible, "Phase 8 dead shows only memorial action")
+	var memorial_profile := DomainStateScript.new_profile("profile:phase8:memorial", 1000)
+	memorial_profile.memorial_count = 1; memorial_profile.memorials = [{"schema_version":1, "memorial_id":"memorial:phase8", "memorialized_at":3000, "pet_snapshot":dead_profile.active_pet.duplicate(true)}]
+	session.profile = memorial_profile; screen.refresh()
+	eq(screen.companion_view.visual_state, "MEMORIAL", "Phase 8 memorial maps to memorial companion")
+	ok(screen.has_lifecycle_button("New Egg") and screen.lifecycle_status.text.contains("Cause:"), "Phase 8 snapshot memorial shows summary and eligible new egg")
+	session.profile.memorials = []; session.profile.memorial_count = 3; screen.refresh()
+	ok(not screen.has_lifecycle_button("New Egg") and screen.lifecycle_status.text.contains("Historical memorials"), "Phase 8 historical memorial hides impossible new egg")
+	session.profile = DomainStateScript.new_profile("profile:phase8:none", 1000); screen.refresh()
+	ok(not screen.has_lifecycle_button("New Egg") and not screen.has_lifecycle_button("Feed"), "Phase 8 NONE exposes no impossible actions")
+	# The debug control retains the ordinary production simulation path.
+	var debug_egg := DomainStateScript.new_profile("profile:phase8:debug-egg", 1000)
+	debug_egg.initial_egg_issued = true; debug_egg.active_subject = "EGG"; debug_egg.active_egg = DomainStateScript.new_egg("egg:phase8:debug", 1000, 15400)
+	session.profile = debug_egg; session.reanchor(10.0); screen.set_developer_panel_visible(true); screen.refresh()
+	developer_debug.emit_signal("pressed")
+	eq(session.profile.active_egg.state, "READY", "Phase 8 debug Time Machine drives production egg simulation")
+	# Corrective Pass 1: product-readable memorial timestamps are Presentation-only.
+	eq(screen._format_timestamp(1000), "1970-01-01 00:16 UTC", "Phase 8 memorial formatter uses deterministic UTC")
+	eq(screen._format_timestamp(null), "Unknown", "Phase 8 memorial formatter falls back for null")
+	eq(screen._format_timestamp("1000"), "Unknown", "Phase 8 memorial formatter rejects non-integer input")
+	var formatted_memorial := DomainStateScript.new_profile("profile:phase8:formatted-memorial", 1000)
+	formatted_memorial.memorial_count = 1; formatted_memorial.memorials = [{"schema_version":1, "memorial_id":"memorial:formatted", "memorialized_at":3000, "pet_snapshot":dead_profile.active_pet.duplicate(true)}]
+	session.profile = formatted_memorial; screen.refresh()
+	ok(screen.lifecycle_status.text.contains("Born: 1970-01-01 00:16 UTC") and screen.lifecycle_status.text.contains("Died: 1970-01-01 00:33 UTC"), "Phase 8 memorial player surface formats born and died timestamps")
+	ok(not screen.lifecycle_status.text.contains("Born: 1000") and not screen.lifecycle_status.text.contains("Died: 2000"), "Phase 8 memorial player surface hides raw epoch timestamps")
+	ok(screen.inspector.text.contains("Born At: 1000") and screen.inspector.text.contains("Died At: 2000"), "Phase 8 developer inspector retains raw timestamp diagnostics")
+	var invalid_memorial: Dictionary = formatted_memorial.duplicate(true); invalid_memorial.memorials[0].pet_snapshot.identity.born_at = null; invalid_memorial.memorials[0].pet_snapshot.life.died_at = null; session.profile = invalid_memorial; screen.refresh()
+	ok(screen.lifecycle_status.text.contains("Born: Unknown") and screen.lifecycle_status.text.contains("Died: Unknown"), "Phase 8 memorial player surface uses stable timestamp fallback")
+	# Every Time Machine assertion presses the actual developer Button signal.
+	var tm_needs := _phase7_session(fixture(), lifecycle, care, survival, relationship, memory, growth, rules)
+	var tm_needs_screen := FoundationScreenScript.new(); tm_needs_screen.session_override = tm_needs; tm_needs_screen._ready(); tm_needs_screen.set_developer_panel_visible(true)
+	var hunger_before := float(tm_needs.profile.active_pet.vitals.hunger)
+	ok(_press_time_machine(tm_needs_screen, "+1h"), "Phase 8 Time Machine needs button is pressed through UI")
+	approx(tm_needs.profile.active_pet.vitals.hunger, hunger_before - 100.0 * 3600.0 / 172800.0, "Phase 8 Time Machine uses production hunger decay")
+	approx(tm_needs.profile.active_pet.vitals.hydration, 100.0 - 100.0 * 3600.0 / 86400.0, "Phase 8 Time Machine uses production hydration decay")
+	approx(tm_needs.profile.active_pet.vitals.energy, 100.0 - 100.0 * 3600.0 / 57600.0, "Phase 8 Time Machine uses production energy decay")
+	ok(String(tm_needs_screen.need_labels.hunger.text).contains("98") and String(tm_needs_screen.need_labels.energy.text).contains("94"), "Phase 8 Time Machine refreshes authoritative needs labels")
+	var tm_growth_profile := fixture(); tm_growth_profile.simulation.last_simulated_at = 173800 - 3600; tm_growth_profile.active_pet.life.growth_stage = "NEWBORN"; tm_growth_profile.active_pet.growth.stage_started_at = 1000
+	var tm_growth := _phase7_session(tm_growth_profile, lifecycle, care, survival, relationship, memory, growth, rules)
+	var tm_growth_screen := FoundationScreenScript.new(); tm_growth_screen.session_override = tm_growth; tm_growth_screen._ready(); tm_growth_screen.set_developer_panel_visible(true)
+	ok(_press_time_machine(tm_growth_screen, "+1h"), "Phase 8 Time Machine growth button is pressed through UI")
+	eq(tm_growth.profile.active_pet.life.growth_stage, "CHILD", "Phase 8 Time Machine drives production growth")
+	eq(tm_growth.profile.active_pet.growth.stage_started_at, 173800, "Phase 8 Time Machine preserves canonical growth threshold")
+	eq(tm_growth_screen.companion_view.visual_state, "CHILD", "Phase 8 Time Machine refreshes child companion visual")
+	var tm_critical_profile := fixture(); tm_critical_profile.active_pet.life.newborn_protection_until = 1000; tm_critical_profile.active_pet.vitals.hunger = 0.0; tm_critical_profile.active_pet.vitals.hydration = 0.0; tm_critical_profile.active_pet.vitals.health = 30.0
+	var tm_critical := _phase7_session(tm_critical_profile, lifecycle, care, survival, relationship, memory, growth, rules)
+	var tm_critical_screen := FoundationScreenScript.new(); tm_critical_screen.session_override = tm_critical; tm_critical_screen._ready(); tm_critical_screen.set_developer_panel_visible(true)
+	ok(_press_time_machine(tm_critical_screen, "+1h"), "Phase 8 Time Machine critical button is pressed through UI")
+	eq(tm_critical.profile.active_pet.survival.condition, "CRITICAL", "Phase 8 Time Machine drives production critical transition")
+	eq(tm_critical.profile.active_pet.survival.critical_started_at, 4000, "Phase 8 Time Machine keeps deterministic critical timestamp")
+	ok(tm_critical_screen.lifecycle_status.text.contains("CRITICAL") and tm_critical_screen.companion_view.critical, "Phase 8 Time Machine refreshes critical presentation")
+	var tm_death_profile := fixture(); tm_death_profile.active_pet.life.newborn_protection_until = 1000; tm_death_profile.active_pet.vitals.hunger = 0.0; tm_death_profile.active_pet.vitals.hydration = 0.0; tm_death_profile.active_pet.vitals.health = 5.0
+	var tm_death := _phase7_session(tm_death_profile, lifecycle, care, survival, relationship, memory, growth, rules)
+	var tm_death_screen := FoundationScreenScript.new(); tm_death_screen.session_override = tm_death; tm_death_screen._ready(); tm_death_screen.set_developer_panel_visible(true)
+	ok(_press_time_machine(tm_death_screen, "+1h"), "Phase 8 Time Machine death button is pressed through UI")
+	eq(tm_death.profile.active_pet.life.life_state, "DEAD", "Phase 8 Time Machine drives production death")
+	eq(tm_death.profile.active_pet.life.died_at, 4000, "Phase 8 Time Machine keeps deterministic death timestamp")
+	eq(tm_death.profile.active_pet.life.death_cause, "COMBINED_DEPRIVATION", "Phase 8 Time Machine retains production death cause")
+	ok(tm_death_screen.companion_view.visual_state == "DEAD" and tm_death_screen.has_lifecycle_button("Memorialize Pet") and not tm_death_screen.has_lifecycle_button("Feed") and not tm_death_screen.language_input.visible, "Phase 8 Time Machine refreshes dead player surface")
+	# Care feedback uses the actual polished context Button callbacks for every action.
+	var care_ui_profile := fixture(); care_ui_profile.active_pet.vitals = {"hunger":40.0,"hydration":30.0,"energy":50.0,"hygiene":60.0,"mood":70.0,"health":100.0}
+	var care_ui := _phase7_session(care_ui_profile, lifecycle, care, survival, relationship, memory, growth, rules)
+	var care_ui_screen := FoundationScreenScript.new(); care_ui_screen.session_override = care_ui; care_ui_screen._ready()
+	var care_feed := care_ui_screen.lifecycle_button("Feed"); care_feed.emit_signal("pressed")
+	ok(float(care_ui.profile.active_pet.vitals.hunger) > 40.0 and care_ui_screen.reaction_label.text.begins_with("Fed"), "Phase 8 Feed UI routes accepted action and fixed feedback")
+	care_ui_screen.lifecycle_button("Drink").emit_signal("pressed")
+	ok(float(care_ui.profile.active_pet.vitals.hydration) > 30.0 and care_ui_screen.reaction_label.text.begins_with("Drank"), "Phase 8 Drink UI routes accepted action and fixed feedback")
+	care_ui_screen.lifecycle_button("Wash").emit_signal("pressed")
+	ok(float(care_ui.profile.active_pet.vitals.hygiene) > 60.0 and care_ui_screen.reaction_label.text.begins_with("Clean"), "Phase 8 Wash UI routes accepted action and fixed feedback")
+	care_ui_screen.lifecycle_button("Touch").emit_signal("pressed")
+	ok(float(care_ui.profile.active_pet.vitals.mood) > 70.0 and care_ui_screen.reaction_label.text == "Reaction: HAPPY", "Phase 8 Touch UI routes accepted action and non-verbal feedback")
+	var energy_before_play := float(care_ui.profile.active_pet.vitals.energy); var mood_before_play := float(care_ui.profile.active_pet.vitals.mood)
+	care_ui_screen.lifecycle_button("Play").emit_signal("pressed")
+	ok(float(care_ui.profile.active_pet.vitals.energy) == energy_before_play - 10.0 and float(care_ui.profile.active_pet.vitals.mood) >= mood_before_play and care_ui_screen.reaction_label.text.begins_with("Played"), "Phase 8 Play UI routes accepted action and fixed feedback")
+	var before_sleep_rebuilds := care_ui_screen.lifecycle_rebuild_count
+	care_ui_screen.lifecycle_button("Sleep").emit_signal("pressed")
+	ok(String(care_ui.profile.active_pet.activity.state) == "SLEEPING" and care_ui_screen.reaction_label.text == "Sleeping", "Phase 8 Sleep UI routes accepted action and fixed feedback")
+	ok(care_ui_screen.lifecycle_rebuild_count == before_sleep_rebuilds + 1 and care_ui_screen.has_lifecycle_button("Wake") and not care_ui_screen.language_input.visible, "Phase 8 Sleep UI rebuilds once to wake-only")
+	care_ui_screen.lifecycle_button("Wake").emit_signal("pressed")
+	ok(String(care_ui.profile.active_pet.activity.state) == "AWAKE" and care_ui_screen.reaction_label.text == "Awake" and care_ui_screen.has_lifecycle_button("Feed") and care_ui_screen.language_input.visible, "Phase 8 Wake UI restores awake controls and fixed feedback")
+	care_ui.profile.active_pet.vitals.energy = 5.0; care_ui_screen.refresh(); care_ui_screen.lifecycle_button("Play").emit_signal("pressed")
+	ok(care_ui_screen.reaction_label.text.contains("tired"), "Phase 8 LOW_ENERGY reason maps to fixed feedback")
+	care_ui.profile.active_pet.activity = {"state":"SLEEPING","sleep_started_at":1000}; care_ui_screen.refresh(); care_ui_screen._care("feed")
+	ok(care_ui_screen.reaction_label.text.contains("sleeping"), "Phase 8 PET_SLEEPING reason maps to fixed feedback")
+	care_ui.profile.active_pet.activity = {"state":"AWAKE","sleep_started_at":null}; care_ui_screen.refresh(); LocalSaveRepositoryScript.test_fail_next_primary_replace = true; care_ui_screen._care("feed")
+	ok(care_ui_screen.reaction_label.text.contains("could not be saved"), "Phase 8 PERSIST_FAILED reason maps to fixed feedback")
+	LocalSaveRepositoryScript.test_fail_next_primary_replace = false
+	# Value/reaction refreshes preserve context nodes, and all controls live in scrollable content.
+	var stable_feed := care_ui_screen.lifecycle_button("Feed"); var stable_rebuilds := care_ui_screen.lifecycle_rebuild_count
+	care_ui.profile.active_pet.vitals.hunger = 12.0; care_ui_screen.reaction_label.text = "Reaction: CURIOUS"; care_ui_screen.refresh()
+	eq(care_ui_screen.lifecycle_button("Feed"), stable_feed, "Phase 8 value and reaction refresh preserve Feed node")
+	eq(care_ui_screen.lifecycle_rebuild_count, stable_rebuilds, "Phase 8 value and reaction refresh preserve lifecycle rebuild count")
+	ok(care_ui_screen.player_scroll.anchor_right == 1.0 and care_ui_screen.player_scroll.anchor_bottom == 1.0 and care_ui_screen.player_scroll.is_ancestor_of(care_ui_screen.panel), "Phase 8 player panel is inside full-viewport scroll hierarchy")
+	for button_name in ["Feed", "Drink", "Play", "Wash", "Touch", "Sleep"]:
+		var context_button := care_ui_screen.lifecycle_button(button_name)
+		ok(context_button != null and care_ui_screen.player_scroll.is_ancestor_of(context_button) and context_button.custom_minimum_size.y >= 44.0, "Phase 8 %s is reachable and mobile-sized" % button_name)
+	for node in [care_ui_screen.language_input, care_ui_screen.language_send, care_ui_screen.developer_toggle, care_ui_screen.developer_panel, care_ui_screen.developer_time_machine]:
+		ok(care_ui_screen.player_scroll.is_ancestor_of(node), "Phase 8 player/developer node is inside scroll hierarchy")
+	ok(care_ui_screen.language_send.custom_minimum_size.y >= 44.0 and care_ui_screen.developer_toggle.custom_minimum_size.y >= 44.0, "Phase 8 language and developer controls are mobile-sized")
+	care_ui_screen.set_developer_panel_visible(true)
+	for button in care_ui_screen.developer_time_machine.get_children(): ok(button.custom_minimum_size.y >= 44.0 and care_ui_screen.player_scroll.is_ancestor_of(button), "Phase 8 Time Machine button is reachable and mobile-sized")
+	# Lifecycle-specific controls share the same portrait target-size contract.
+	for state_value in ["INCUBATING", "READY", "HATCHING"]:
+		var sizing_egg := DomainStateScript.new_profile("profile:phase8:size:%s" % state_value, 1000); sizing_egg.initial_egg_issued = true; sizing_egg.active_subject = "EGG"; sizing_egg.active_egg = DomainStateScript.new_egg("egg:size:%s" % state_value, 1000, 15400); sizing_egg.active_egg.state = state_value
+		if state_value == "HATCHING": sizing_egg.active_egg.reserved_pet_id = "pet:size"; sizing_egg.active_egg.reserved_pet_seed = 1; sizing_egg.active_egg.hatching_started_at = 1000
+		care_ui.profile = sizing_egg; care_ui_screen.refresh()
+		for context_button in care_ui_screen.lifecycle_panel.get_children():
+			if context_button is Button: ok(context_button.custom_minimum_size.y >= 44.0 and care_ui_screen.player_scroll.is_ancestor_of(context_button), "Phase 8 %s lifecycle button is reachable and mobile-sized" % state_value)
+	care_ui.profile = dead_profile.duplicate(true); care_ui_screen.refresh(); ok(care_ui_screen.lifecycle_button("Memorialize Pet").custom_minimum_size.y >= 44.0, "Phase 8 memorialize control is mobile-sized")
+	care_ui.profile = formatted_memorial.duplicate(true); care_ui_screen.refresh(); ok(care_ui_screen.lifecycle_button("New Egg").custom_minimum_size.y >= 44.0, "Phase 8 new egg control is mobile-sized")
+	var profile_before_visual: Dictionary = care_ui.profile.duplicate(true); var writes_before_visual: int = care_ui.persistence_write_count
+	for visual in ["EGG", "NEWBORN", "SLEEPING", "DEAD", "MEMORIAL"]: care_ui_screen.companion_view.present(visual, visual == "SLEEPING")
+	eq(care_ui.profile, profile_before_visual, "Phase 8 companion visual updates are read-only")
+	eq(care_ui.persistence_write_count, writes_before_visual, "Phase 8 companion visual updates write nothing")
+	care_ui_screen.free(); care_ui.free(); tm_death_screen.free(); tm_death.free(); tm_critical_screen.free(); tm_critical.free(); tm_growth_screen.free(); tm_growth.free(); tm_needs_screen.free(); tm_needs.free()
+	screen.free(); session.free()
+
+func _button_in(container: Container, text: String) -> Button:
+	for child in container.get_children():
+		if child is Button and child.text == text: return child
+	return null
+
+func _press_time_machine(screen: FoundationScreen, text: String) -> bool:
+	var button := _button_in(screen.developer_time_machine, text)
+	if button == null: return false
+	button.emit_signal("pressed")
+	return true
 
 func _run_phase7_language_tests(lifecycle: Dictionary, care: Dictionary, survival: Dictionary, relationship: Dictionary, memory: Dictionary, growth: Dictionary) -> void:
 	# Phase 7: local rules are centralized; the Domain result is deterministic.

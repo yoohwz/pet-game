@@ -7,6 +7,6 @@
 5. Phase 4 — ACCEPTED / MERGED
 6. Phase 5 — ACCEPTED / MERGED
 7. Phase 6 — ACCEPTED / MERGED
-8. Phase 7 — IMPLEMENTED CANDIDATE (Offline Language)
-9. Phase 8 — NOT STARTED (Product Polish)
+8. Phase 7 — ACCEPTED / MERGED
+9. Phase 8 — IMPLEMENTED CANDIDATE (Product Polish)
 10. Phase 9 — NOT STARTED (Optional Online)

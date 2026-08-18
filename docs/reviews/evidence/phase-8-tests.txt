@@ -1,0 +1,5 @@
+Command:
+godot --headless --path . -s res://tests/test_runner.gd
+
+Result:
+RESULT: 1174 passed, 0 failed
